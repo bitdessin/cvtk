@@ -1,0 +1,28 @@
+[project]
+name = 'cvtk'
+version = '0.2.0'
+authors = [
+    { name = 'Jianqiang Sun', email='sun@bitdessin.dev' },
+]
+description = 'Computer Vision Toolkit'
+readme = 'README.md'
+requires-python = '>=3.10'
+classifiers = [
+        'Development Status :: 3 - Alpha',
+        'Environment :: Console',
+        'Intended Audience :: Science/Research',
+        'Programming Language :: Python :: 3',
+        'Topic :: Scientific/Engineering :: Image Recognition',
+]
+license = { text = 'MIT' }
+dependencies = [
+    'Pillow',
+    'numpy'
+]
+
+
+[project.urls]
+Homepage = 'https://github.com/bitdessin/cvtk'
+Issues = 'https://github.com/bitdessin/cvtk/issues'
+
+

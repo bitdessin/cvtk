@@ -1,0 +1,7 @@
+sphinx-rtd-theme
+sphinxcontrib-napoleon
+requests
+matplotlib
+torch
+torchvision
+pycocotools
