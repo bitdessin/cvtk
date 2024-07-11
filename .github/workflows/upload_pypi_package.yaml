@@ -1,0 +1,21 @@
+name: upload pypi package
+
+on:
+  push:
+    tags:
+        - v*
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+        - name: checkout
+          uses: actions/checkout@v4
+    
+        - name: build and publish package
+          uses: JRubics/poetry-publish@v2.0
+          with:
+              python_verison: '3.11'
+              pypi_token: ${{ secrets.PYPI_API_TOKEN }}
+
