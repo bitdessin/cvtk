@@ -1,6 +1,6 @@
 [tool.poetry]
 name = 'cvtk'
-version = '0.2.1'
+version = '0.2.2'
 description = 'Computer Vision Toolkit'
 authors = ['Jianqiang Sun <sun@bitdessin.dev>']
 readme = 'README.md'
@@ -25,7 +25,8 @@ cvtk = 'cvtk.scripts.cvtk:main'
 
 [tool.poetry.dependencies]
 Pillow = '*'
-numpy = '*'
+numpy = '>= 1.21'
+pandas = '>= 1.3'
 
 
 [tool.poetry.group.dev.dependencies]
@@ -33,11 +34,14 @@ python = '>=3.10'
 requests = '*'
 Pillow = '*'
 numpy = '*'
-pandas = '*'
+pandas = '>= 1.3'
 matplotlib = '*'
 torch = '*'
 torchvision = '*'
 pycocotools = '*'
+plotly = '*'
+kaleido = '*'
+scikit-learn = '*'
 
 
 [tool.poetry.group.docs]
@@ -55,7 +59,9 @@ matplotlib = '*'
 torch = '*'
 torchvision = '*'
 pycocotools = '*'
-
+plotly = '*'
+kaleido = '*'
+scikit-learn = '*'
 
 
 [build-system]

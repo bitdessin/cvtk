@@ -5,6 +5,7 @@ import uuid
 import gzip
 import inspect
 import numpy as np
+import pandas as pd
 import PIL.Image
 import PIL.ImageFile
 import PIL.ImageOps
@@ -699,13 +700,14 @@ class CLSCORE():
 
 
 
-    def inference(self, dataloader):
+    def inference(self, dataloader, output='prob+label', format='pandas'):
         """Inference the model with the provided dataloader
 
         Inference the model with the provided dataloader. The output is a list of probabilities for each class.
 
         Args:
             dataloader (torch.utils.data.DataLoader): a dataloader for inference
+            output (str): the output type. Default is 'prob'.
         """
         self.model = self.model.to(self.device)
         self.model.eval()
@@ -716,9 +718,154 @@ class CLSCORE():
             with torch.set_grad_enabled(False):
                 outputs = self.model(inputs)
             probs.append(torch.nn.functional.softmax(outputs, dim=1).detach().cpu().numpy())
+        probs = np.concatenate(probs, axis=0)
+        labels = self.dataclass[probs.argmax(axis=1).tolist()]
+        
+        return self.__format_inference_output(probs, labels, dataloader.dataset.x, self.dataclass.classes, output, format)
 
-        probs = np.concatenate(probs, axis=0).tolist()
-        return probs
+
+
+    def __format_inference_output(self, probs, labels, images, cl, output, format):
+        if output == 'prob':
+            if format in ['list']:
+                return probs.tolist()
+            elif format in ['tuple']:
+                return tuple(probs.tolist())
+            elif format in ['numpy', 'np']:
+                return probs
+            else:
+                return pd.DataFrame(probs, index=images, columns=cl)
+        elif output == 'label':
+            if format in ['list']:
+                return labels
+            elif format in ['tuple']:
+                return tuple(labels)
+            elif format in ['numpy', 'np']:
+                raise ValueError('The inferenced labels cannot be converted to numpy array, use `list` or `tuple` instead.')
+            else:
+                return pd.DataFrame(labels, index=images, columns=['prediction'])    
+        else:
+            if format in ['list']:
+                return list(zip(probs.tolist(), labels))
+            elif format in ['tuple']:
+                return tuple(zip(probs.tolist(), labels))
+            elif format in ['numpy', 'np']:
+                raise ValueError('The inferenced labels cannot be converted to numpy array, use `list` or `tuple` instead.')
+            else:
+                return pd.DataFrame(np.concatenate([np.array(labels).reshape(-1, 1), probs], axis=1),
+                                    index=images, columns=['prediction'] + cl)
+
+
+def plot_trainlog(train_log, output=None, width=600, height=800, scale=1.0):
+    """Plot loss and accuracy statistics from training logs
+
+    Plot loss and accuracy statistics from training logs. The training logs are saved in a tab-separated file.
+    
+    Args:
+        train_stats (str): a path to a tab-separated file containing training logs
+        output (str): a directory path to save the output images
+        width (int): the width of the output image
+        height (int): the height of the output image
+        scale (float): the scale of the output image
+
+    """
+    import pandas as pd
+    import plotly.express as px
+    import plotly.subplots
+    import plotly.graph_objects as go
+
+    # data preparation
+    train_log = pd.read_csv(train_log, sep='\t', header=0, comment='#')
+    train_log = train_log.melt(id_vars='epoch', var_name='type', value_name='value')
+    train_log = train_log.assign(phase=train_log['type'].apply(lambda x: x.split('_')[0]))
+    train_log = train_log.assign(metric=train_log['type'].apply(lambda x: x.split('_')[1]))
+    
+    # plots
+    cols = px.colors.qualitative.Plotly
+    fig = plotly.subplots.make_subplots(rows=2, cols=1)
+
+    c = 0
+    for phase in train_log['phase'].unique():
+        d = train_log[(train_log['phase'] == phase) & (train_log['metric'] == 'loss')]
+        fig.add_trace(
+            go.Scatter(x=d['epoch'], y=d['value'],
+                       mode='lines+markers',
+                       name=f'{phase}',
+                       line=dict(color=cols[c])),
+            row=1, col=1
+        )
+        d = train_log[(train_log['phase'] == phase) & (train_log['metric'] == 'acc')]
+        fig.add_trace(
+            go.Scatter(x=d['epoch'], y=d['value'],
+                       mode='lines+markers',
+                       name=f'{phase}',
+                       line=dict(color=cols[c]),
+                       showlegend=False),
+            row=2, col=1
+        )
+        c = (c + 1) % len(cols)
+
+    fig.update_layout(title_text='Training Statistics', template='ggplot2')
+    fig.update_xaxes(title_text='epoch')
+    fig.update_yaxes(title_text='loss', row=1, col=1)
+    fig.update_yaxes(title_text='acc', range=[-0.05, 1.05], row=2, col=1)
+
+    if output is not None:
+        fig.write_image(output, width=width, height=height, scale=scale)
+    else:
+        fig.show()
+    
+    return fig
+
+
+def plot_cm(test_outputs, output=None, width=600, height=600, scale=1.0):
+    """Plot a confusion matrix from test outputs
+
+    Plot a confusion matrix from test outputs. The test outputs are saved in a tab-separated file.
+
+    Args:
+        test_outputs (str): a path to a tab-separated file containing test outputs
+        output (str): a directory path to save the output images
+        width (int): the width of the output image
+        height (int): the height of the output image
+        scale (float): the scale of the output image
+    
+    """
+    import pandas as pd
+    import plotly.graph_objects as go
+    import sklearn.metrics
+
+    # data preparation
+    test_outputs = pd.read_csv(test_outputs, sep='\t', header=0, comment='#')
+    class_labels = test_outputs.columns[2:]
+    y_true = test_outputs.iloc[:, 1].values.tolist()
+    y_pred = test_outputs.iloc[:, 2:].idxmax(axis=1).values.tolist()
+    
+    # statistics calculation
+    cm = sklearn.metrics.confusion_matrix(y_true, y_pred, labels=test_outputs.columns[2:])
+
+    fig = go.Figure(data=go.Heatmap(x=class_labels, y=class_labels, z=cm,
+                                    colorscale='YlOrRd', hoverongaps=False))
+    fig.update_layout(
+            title='Confusion Matrix',
+            xaxis_title='Predicted label',
+            yaxis_title='True label',
+            xaxis=dict(side='bottom'),
+            yaxis=dict(side='left'))
+    fig.update_layout(template='ggplot2')
+
+
+    if output is not None:
+        fig.write_image(output, width=width, height=height, scale=scale)
+        cm = pd.DataFrame(cm, index=class_labels, columns=class_labels)
+        with open(os.path.splitext(output)[0] + '.txt', 'w') as oufh:
+            oufh.write('# Confusion Matrix\n')
+            oufh.write('#\tprediction\n')
+            cm.to_csv(oufh, sep='\t', header=True, index=True)
+    else:
+        fig.show()
+
+    return fig
 
 
 
@@ -773,7 +920,7 @@ import torchvision
 
 {inspect.getsource(__clscomponents___train)}
 
-{inspect.getsource(__clscomponents___inference).replace('import pandas as pd', '')}
+{inspect.getsource(__clscomponents___inference)}
 
 {parser_str}
 
@@ -831,7 +978,7 @@ def __clscomponents__train(dataclass, train_dataset, valid_dataset, test_dataset
                 DatasetLoader(test_dataset, dataclass, transform=datatransforms.inference),
                 batch_size=4, num_workers=8)
 
-    model.train(dataloaders)
+    model.train(dataloaders, epoch=5)
     model.save(output_weights)
 
 
@@ -848,11 +995,6 @@ def __clscomponents__inference(dataclass, dataset, model_weights, output):
                 batch_size=4, num_workers=8)
     
     probs = model.inference(dataloader)
-    import pandas as pd
-    probs = pd.DataFrame(probs,
-                         index=dataloader.dataset.x,
-                         columns=dataclass.classes)
-
     probs.to_csv(output, sep = '\t', header=True, index=True, index_label='image')
 
 
