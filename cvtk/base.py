@@ -145,8 +145,38 @@ def __pil2gray(im: PIL.Image.Image) -> PIL.Image.Image:
 
 
 
+def imresize(im: ImageSourceTypes, shape=None, scale=None, shortest=None, longest=None, resample=PIL.Image.BILINEAR) -> PIL.Image.Image:
+    """Resize the image
 
-def imwrite(im, ImageSourceTypes: str, output: str, quality: int=95):
+    Resize the image to the given shape, scale, shortest, or longest side.
+
+    Args:
+        im: ImageSourceTypes: Image data in numpy array format.
+        shape: tuple: The shape of the resized image (height, width).
+        scale: float: The scale factor to resize the image.
+        shortest: int: The shortest side of the image.
+        longest: int: The longest side of the image.
+        resample: int: The resampling filter. Default is PIL.Image.BILINEAR.
+    
+    """
+    im = imread(im, format='PIL')
+    
+    if shape is not None:
+        return im.resize(shape, resample=resample)
+    elif scale is not None:
+        return im.resize((int(im.width * scale), int(im.height * scale)), resample=resample)
+    elif shortest is not None:
+        ratio = shortest / min(im.size)
+        return im.resize((int(im.width * ratio), int(im.height * ratio)), resample=resample)
+    elif longest is not None:
+        ratio = longest / max(im.size)
+        return im.resize((int(im.width * ratio), int(im.height * ratio)), resample=resample)
+    else:
+        raise ValueError('Specify the shape, scale, shortest, or longest side to resize the image.')
+    
+
+
+def imwrite(im: ImageSourceTypes, output: str, quality: int=95):
     """Save image to file
 
     Args:
@@ -201,7 +231,7 @@ def imshow(im: ImageSourceTypes | list[ImageSourceTypes], ncol: int|None=None, n
 
 
 
-def imlist(source: str | list[str], ext: list[str]=['.jpg', '.png', '.tiff']) -> list[str]:
+def imlist(source: str | list[str], ext: list[str]=['.jpg', '.jpeg', '.png', '.tiff']) -> list[str]:
     """List all image files from the given sources
 
     The function recevies image sources as a file path, directory path, or a list of file and directory paths.

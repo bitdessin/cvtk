@@ -1,4 +1,5 @@
-__version__ = '0.0.1'
+__version__ = '0.2.1'
 
-from .base import imread, imconvert, imwrite, imshow, imlist
+from .base import imread, imconvert, imwrite, imshow, imlist, imresize
+
 

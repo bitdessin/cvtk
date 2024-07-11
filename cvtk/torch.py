@@ -1,6 +1,9 @@
 import os
 import random
+import datetime
+import uuid
 import gzip
+import inspect
 import numpy as np
 import PIL.Image
 import PIL.ImageFile
@@ -8,11 +11,13 @@ import PIL.ImageOps
 import PIL.ImageFilter
 try:
     import torch
+    import torchvision
 except ImportError as e:
-    raise ImportError('Unable to import torch. '
+    raise ImportError('Unable to import torch and torchvision. '
                       'Install torch package to enable this feature.') from e
 
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 
 
 
@@ -173,6 +178,42 @@ class SquareResize:
     
 
 
+
+class DataTransforms():
+    """Pipeline of image processing for training and inference
+
+    DataPipeline provides a pipeline of image processing for training and inference.
+    
+    Args:
+        shape (int): The resolution of the square image.
+        bg_color (tuple): The color of the padding area. Default is None.
+            If None, the color is extended from both ends of the image.
+    """
+    def __init__(self, shape=600, bg_color=None):
+        self.train = torchvision.transforms.Compose([
+            SquareResize(shape, bg_color),
+            torchvision.transforms.RandomHorizontalFlip(0.5),
+            torchvision.transforms.RandomAffine(45),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize([0.485, 0.456, 0.406],
+                                             [0.229, 0.224, 0.225])
+        ])
+        self.valid = torchvision.transforms.Compose([
+            SquareResize(shape, bg_color),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize([0.485, 0.456, 0.406],
+                                             [0.229, 0.224, 0.225])
+        ])
+        self.inference = torchvision.transforms.Compose([
+            SquareResize(shape, bg_color),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize([0.485, 0.456, 0.406],
+                                            [0.229, 0.224, 0.225])
+        ])
+    
+
+
+
 class DatasetLoader(torch.utils.data.Dataset):
     """A class to load images for training or testing
 
@@ -235,7 +276,6 @@ class DatasetLoader(torch.utils.data.Dataset):
                         trainfh = gzip.open(dataset, 'rt')
                     else:
                         trainfh = open(dataset, 'r')
-                    trainfh.readline()
                     x = []
                     y = []
                     for line in trainfh:
@@ -277,10 +317,8 @@ class DatasetLoader(torch.utils.data.Dataset):
     def __getitem__(self, i):
         img = PIL.Image.open(self.x[i]).convert('RGB')
         img = PIL.ImageOps.exif_transpose(img)
-
         if self.transform is not None:
             img = self.transform(img)
-
         if self.y[i] is None:
             return img
         else:
@@ -314,6 +352,8 @@ class DatasetLoader(torch.utils.data.Dataset):
         return x, y
 
 
+
+
 class CLSCORE():
     """A class provides training and inference functions for a classification model
 
@@ -322,6 +362,7 @@ class CLSCORE():
 
     Args:
         model (torch.nn.Module): a model to be trained
+        weights (str): the name of the weights
         dataclass (DataClass): a data class that contains class labels
         temp_dirpath (str): a temporary directory path to save intermediate checkpoints and training logs
 
@@ -336,56 +377,79 @@ class CLSCORE():
     Examples:
         >>> import torch
         >>> import torchvision
-        >>> from cvtk import DataClass
+        >>> import cvtk.torch
         >>>
-        >>> # dataset
-        >>> dataclass = DataClass('dataclass.txt')
-        >>> dataloaders = {
-        >>>     'train': train_dataloader,
-        >>>     'valid': valid_dataloader,
-        >>>     'test': test_dataloader
-        >>> }
-        >>>
-        >>> # model
-        >>> model = torchvision.models.efficientnet_b7(
-        >>>     weights=torchvision.models.EfficientNet_B7_Weights.DEFAULT)
-        >>> model.classifier[1] = torch.nn.Linear(model.classifier[1].in_features, len(dataclass.classes))
-        >>>
-        >>> # train and inference
-        >>> clscore = CLSCORE(model, dataclass)
-        >>> clscore.train(dataloaders, epochs=20, lr=0.01)
-        >>>
-        >>> dataloader = test_dataloader
-        >>> probs = clscore.inference(dataloader)
+        >>> dataclass = ['leaf', 'flower', 'root']
+        >>> model = cvtk.torch.CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
+        >>> 
+        >>> dataclass = 'class_label.txt'
+        >>> model = cvtk.torch.CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
     """
-
-    def __init__(self, model, dataclass, temp_dirpath=None):
-        # device
+    def __init__(self, model, dataclass, weights=None, temp_dirpath=None):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-        # data class
-        if isinstance(dataclass, str):
-            dataclass = DataClass(dataclass)
-        elif not isinstance(dataclass, DataClass):
-            raise TypeError('Invalid type: {}'.format(type(dataclass)))
-        self.dataclass = dataclass
-
-        # model
-        self.model = model
+        self.dataclass = self.__init_dataclass(dataclass)
+        self.model = self.__init_model(model, weights, len(self.dataclass.classes))
+        self.temp_dirpath = self.__init_tempdir(temp_dirpath)
+        
         self.model = self.model.to(self.device)
         
-        # create variables to save intermediate checkpoints and training logs
-        self.temp_dirpath = self.__init_tempdir(temp_dirpath)
-        self.train_stats = {
-            'epoch': [],
-            'train_loss': [],
-            'train_acc': [],
-            'valid_loss': [],
-            'valid_acc': []
-        }
+        self.train_stats = None
         self.test_stats = None
 
     
+    def __init_dataclass(self, dataclass):
+        if isinstance(dataclass, DataClass):
+            pass
+        if isinstance(dataclass, str) or isinstance(dataclass, list) or isinstance(dataclass, tuple):
+            dataclass = DataClass(dataclass)
+        elif not isinstance(dataclass, DataClass):
+            raise TypeError('Invalid type: {}'.format(type(dataclass)))
+        return dataclass
+
+
+    def __init_model(self, model, weights, n_classes):
+        module = None
+        if weights is None:
+            module = eval(f'torchvision.models.{model}(weights=None)')
+        else:
+            if os.path.exists(weights):
+                module = eval(f'torchvision.models.{model}(weights=None)')
+            else:
+                module = eval(f'torchvision.models.{model}(weights=torchvision.models.{weights})')
+
+        def __set_output(module, n_classes):
+            last_layer_name = None
+            last_layer = None
+
+            for name, child in module.named_children():
+                if isinstance(child, torch.nn.Linear):
+                    last_layer_name = name
+                    last_layer = child
+                else:
+                    sub_last_layer_name, sub_last_layer = __set_output(child, n_classes)
+                    if sub_last_layer:
+                        last_layer_name = f'{name}.{sub_last_layer_name}'
+                        last_layer = sub_last_layer
+
+            if last_layer:
+                in_features = last_layer.in_features
+                new_layer = torch.nn.Linear(in_features, n_classes)
+                layers = last_layer_name.split('.')
+                sub_module = module
+                for layer in layers[:-1]:
+                    sub_module = getattr(sub_module, layer)
+                setattr(sub_module, layers[-1], new_layer)
+
+            return last_layer_name, last_layer
+
+        __set_output(module, n_classes)
+
+        if weights is not None and os.path.exists(weights):
+            module.load_state_dict(torch.load(weights))
+        
+        return module
+
+
     def __init_tempdir(self, temp_dirpath):
         if temp_dirpath is None:
             temp_dirpath = os.path.join(
@@ -397,47 +461,57 @@ class CLSCORE():
         return temp_dirpath
 
 
-    def train(self, dataloaders, epochs=20,  lr=0.01, resume=False):
+
+    def train(self, dataloaders, epoch=20,  optimizer=None, criterion=None, resume=False):
         """Train the model with the provided dataloaders
 
         Train the model with the provided dataloaders. The training statistics are saved in the temporary directory.
 
         Args:
-            dataloaders (dict): a dictionary of dataloaders for training, validation, and test
-            epochs (int): the number of epochs to train the model
-            lr (float): the learning rate for the optimizer
-            resume (bool): resume training from the last checkpoint if True
+            dataloaders (dict): A dictionary of dataloaders for training, validation, and test.
+                The keys of the dictionary should be 'train', 'valid', and 'test',
+                where 'train' is required whereas 'valid' and 'test' are optional.
+            epoch (int): The number of epochs to train the model.
+            optimizer (torch.optim.Optimizer|None): An optimizer for training.
+                Default is `None` and `torch.optim.SGD` is used.
+            criterion (torch.nn.Module|None): A loss function for training.
+                Default is `None` and `torch.nn.CrossEntropyLoss` is used.
+            resume (bool): If True, the training resumes from the last checkpoint
+                which is saved in the temporary directory specified with ``temp_dirpath``.
         
         Examples:
-            >>> import torch
-            >>> import torchvision
-            >>> from cvtk import DataClass
+            >>> import cvtk.torch
+            >>> 
+            >>> dataclass = ['leaf', 'flower', 'root']
+            >>> model = cvtk.torch.CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
             >>>
             >>> # dataset
-            >>> dataclass = DataClass
+            >>> transform = DataTransforms()
             >>> dataloaders = {
-            >>>     'train': train_dataloader,
-            >>>     'valid': valid_dataloader,
-            >>>     'test': test_dataloader
+            >>>     'train': cvtk.torch.DatasetLoader('train.txt', dataclass, transform.train)
+            >>>     'valid': cvtk.torch.DatasetLoader('valid.txt', dataclass, transform.valid)
+            >>>     'test': cvtk.torch.DatasetLoader('test.txt', dataclass, transform.inference)
             >>> }
             >>>
-            >>> # model
-            >>> model = torchvision.models.efficientnet_b7(
-            >>>     weights=torchvision.models.EfficientNet_B7_Weights.DEFAULT)
-            >>> model.classifier[1] = torch.nn.Linear(model.classifier[1].in_features, len(dataclass.classes))
-            >>>
-            >>> # train
-            >>> clscore = CLSCORE(model, dataclass)
-            >>> clscore.train(dataloaders, epochs=20, lr=0.01)
+            >>> # training
+            >>> model.train(dataloaders)
         """
 
+        self.train_stats = {
+            'epoch': [],
+            'train_loss': [],
+            'train_acc': [],
+            'valid_loss': [],
+            'valid_acc': []
+        }
+
+        # dataset
+        dataloaders = self.__valid_dataloaders(dataloaders)
+
         # training params
-        criterion = torch.nn.CrossEntropyLoss()
-        optimizer = torch.optim.SGD(self.model.parameters(), lr=lr)
+        criterion = torch.nn.CrossEntropyLoss() if criterion is None else criterion
+        optimizer = torch.optim.SGD(self.model.parameters(), lr=1e-3) if optimizer is None else optimizer
         
-        # set up train/validation datasets
-        if 'train' not in dataloaders:
-            raise ValueError('train dataset is not provided')
 
         # resume training from the last checkpoint if resume is True
         last_epoch = 0
@@ -445,21 +519,21 @@ class CLSCORE():
             last_epoch = self.__update_model_weight()
 
         # train the model
-        for epoch in range(last_epoch + 1, epochs + 1):
-            print(f'Epoch {epoch}/{epochs}')
+        for epoch_i in range(last_epoch + 1, epoch + 1):
+            print(f'Epoch {epoch_i}/{epoch}')
 
             # training and validation
-            self.train_stats['epoch'].append(epoch)
+            self.train_stats['epoch'].append(epoch_i)
             for phase in ['train', 'valid']:
-                loss, acc, probs = self.__train(dataloaders[phase], criterion, optimizer, phase)
+                loss, acc, probs = self.__train(dataloaders[phase], phase, criterion, optimizer)
                 self.train_stats[f'{phase}_loss'].append(loss)
                 self.train_stats[f'{phase}_acc'].append(acc)
                 if loss is not None and acc is not None:
                     print(f'{phase} loss: {loss:.4f}, acc: {acc:.4f}')
 
             # test the model if dataset is provided at the last epoch
-            if epoch == epochs and dataloaders['test'] is not None:
-                loss, acc, probs = self.__train(dataloaders['test'], criterion, optimizer, phase)
+            if epoch_i == epoch and dataloaders['test'] is not None:
+                loss, acc, probs = self.__train(dataloaders['test'], phase, criterion, optimizer)
                 self.test_stats = {
                     'dataset': dataloaders['test'].dataset,
                     'loss': loss,
@@ -469,6 +543,17 @@ class CLSCORE():
             
             self.save(os.path.join(self.temp_dirpath, f'checkpoint_latest.pth'))
 
+
+    def __valid_dataloaders(self, dataloaders):
+        if not isinstance(dataloaders, dict):
+            raise TypeError('Expect dict for `dataloaders` but {} was given.'.format(type(dataloaders)))
+        if 'train' not in dataloaders:
+            raise ValueError('Train dataset is required for training but not provided.')
+        if 'valid' not in dataloaders:
+            dataloaders['valid'] = None
+        if 'test' not in dataloaders:
+            dataloaders['test'] = None
+        return dataloaders
 
 
     def __update_model_weight(self):
@@ -502,7 +587,7 @@ class CLSCORE():
 
 
 
-    def __train(self, dataloader, criterion, optimizer, phase):
+    def __train(self, dataloader, phase, criterion, optimizer):
         if dataloader is None:
             return None, None, None
         if phase == 'trian':
@@ -515,7 +600,6 @@ class CLSCORE():
         probs = []
 
         for inputs, labels in dataloader:
-            print(inputs)
             inputs = inputs.to(self.device)
             labels = labels.to(self.device)
 
@@ -541,10 +625,51 @@ class CLSCORE():
 
 
 
-    def __str(self, s):
-        if s is None:
-            return 'NA'
-        return str(s)
+    def save(self, output_fpath):
+        """Save the model and training statistics
+
+        Save the model and training statistics in the provided output file path. The output file path should end with '.pth'.
+        In addition to the model weights, the training statistics are saved in a text file with the same name as the output file path but with '.train_stats.txt' extension.
+        In addition, if test data is given, the test statistics are saved in a text file with the same name as the output file path but with '.test_outputs.txt' extension.
+
+        Args:
+            output_fpath (str): an output file path to save the model and training statistics
+
+
+        Examples:
+            >>> import cvtk.torch
+            >>> 
+            >>> dataclass = ['leaf', 'flower', 'root']
+            >>> model = cvtk.torch.CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
+            >>>
+            >>> # dataset
+            >>> transform = DataTransforms()
+            >>> dataloaders = {
+            >>>     'train': cvtk.torch.DatasetLoader('train.txt', dataclass, transform.train)
+            >>>     'valid': cvtk.torch.DatasetLoader('valid.txt', dataclass, transform.valid)
+            >>>     'test': cvtk.torch.DatasetLoader('test.txt', dataclass, transform.inference)
+            >>> }
+            >>>
+            >>> # training
+            >>> model.train(dataloaders)
+            >>> model.save('model.pth')
+        """
+        if not output_fpath.endswith('.pth'):
+            output_fpath += '.pth'
+        if not os.path.exists(os.path.dirname(output_fpath)):
+            os.makedirs(os.path.dirname(output_fpath))
+
+        self.model = self.model.to('cpu')
+        
+        torch.save(self.model.state_dict(), output_fpath)
+        self.model = self.model.to(self.device)
+
+        output_log_fpath = os.path.splitext(output_fpath)[0] + '.train_stats.txt'
+        self.__write_train_stats(output_log_fpath)
+
+        if self.test_stats is not None:
+            output_log_fpath = os.path.splitext(output_fpath)[0] + '.test_outputs.txt'
+            self.__write_test_outputs(output_log_fpath)
 
 
     def __write_train_stats(self, output_log_fpath):
@@ -553,6 +678,12 @@ class CLSCORE():
             for vals in zip(*self.train_stats.values()):
                 fh.write('\t'.join([self.__str(v) for v in vals]) + '\n')
 
+
+    def __str(self, s):
+        if s is None:
+            return 'NA'
+        return str(s)
+    
 
     def __write_test_outputs(self, output_log_fpath):
         with open(output_log_fpath, 'w') as fh:
@@ -564,27 +695,8 @@ class CLSCORE():
                     x_,
                     self.dataclass.classes[y_],
                     '\t'.join([str(_) for _ in p_])))
+                
 
-    def save(self, output_fpath):
-        """Save the model and training statistics
-
-        Save the model and training statistics in the provided output file path. The output file path should end with '.pth'.
-
-        Args:
-            output_fpath (str): an output file path to save the model and training statistics
-        """
-        if not output_fpath.endswith('.pth'):
-            output_fpath += '.pth'
-        self.model = self.model.to('cpu')
-        torch.save(self.model.state_dict(), output_fpath)
-        self.model = self.model.to(self.device)
-
-        output_log_fpath = os.path.splitext(output_fpath)[0] + '.train_stats.txt'
-        self.__write_train_stats(output_log_fpath)
-
-        if self.test_stats is not None:
-            output_log_fpath = os.path.splitext(output_fpath)[0] + '.test_outputs.txt'
-            self.__write_test_outputs(output_log_fpath)
 
 
     def inference(self, dataloader):
@@ -607,5 +719,173 @@ class CLSCORE():
 
         probs = np.concatenate(probs, axis=0).tolist()
         return probs
+
+
+
+def create_cls(project, source='cvtk'):
+    """Create a classification project
+
+    Generate scripts to train and inference a classification model using torch.
+
+    Args:
+        project (str): A project name to create a script.
+        standalone (bool): If True, scripts without importation of cvtk will be generated.
+
+    """
+    if source not in ['cvtk', 'torch']:
+        raise ValueError(f'cvtk.torch.create_cls creates source code based on cvtk or torch, but {source} was given.')
+
+    if not project.endswith('.py'):
+        project = project + '.py'
+
+    # parser component
+    parser_str = inspect.getsource(__clscomponents__parser)
+    parser_str = parser_str.replace('def __clscomponents__parser():', 'if __name__ == \'__main__\':')
+    parser_str = parser_str.replace('import argparse', '')
+
+    # import component
+    cvtk_modules = ['DataClass', 'DatasetLoader', 'SquareResize', 'DataTransforms', 'CLSCORE']
+    cvtk_functions = 'from cvtk.torch import {}'.format(', '.join(cvtk_modules))
+    if source == 'torch':
+        cvtk_functions = '\n\n'
+        for cvtk_module in cvtk_modules:
+            cvtk_functions += '\n' + inspect.getsource(eval(cvtk_module))
+    
+
+    # template
+    tmpl = f'''import os
+import argparse
+import PIL.Image
+import PIL.ImageFile
+import PIL.ImageOps
+import PIL.ImageFilter
+import numpy as np
+import pandas as pd
+import torch
+import torchvision
+{cvtk_functions}
+
+
+{inspect.getsource(__clscomponents__train)}
+
+{inspect.getsource(__clscomponents__inference)}
+
+
+{inspect.getsource(__clscomponents___train)}
+
+{inspect.getsource(__clscomponents___inference).replace('import pandas as pd', '')}
+
+{parser_str}
+
+
+"""
+Example Usage:
+
+
+python __projectname__ train \\
+    --dataclass ./data/fruits/class.txt \\
+    --train ./data/fruits/train.txt \\
+    --valid ./data/fruits/valid.txt \\
+    --test ./data/fruits/test.txt \\
+    --output_weights ./output/fruits.pth
+
+    
+python __projectname__ inference \\
+    --dataclass ./data/fruits/class.txt \\
+    --data ./data/fruits/test.txt \\
+    --model_weights ./output/fruits.pth \\
+    --output ./output/fruits.inference_results.txt
+"""
+    '''
+
+    tmpl = tmpl.replace('__clscomponents__', '')
+    tmpl = tmpl.replace('__projectname__', project)
+   
+    with open(project, 'w') as fh:
+        fh.write(tmpl)
+
+
+def __clscomponents__train(dataclass, train_dataset, valid_dataset, test_dataset, input_weights, output_weights):
+    dataclass = DataClass(dataclass)
+    
+    temp_dpath = os.path.splitext(output_weights)[0]
+
+    if input_weights is None:
+        input_weights = 'ResNet18_Weights.DEFAULT'
+    model = CLSCORE('resnet18', dataclass, input_weights, temp_dpath)
+    
+    datatransforms = DataTransforms()
+    dataloaders = {
+        'train': torch.utils.data.DataLoader(
+                DatasetLoader(train_dataset, dataclass, transform=datatransforms.train),
+                batch_size=4, num_workers=8, shuffle=True),
+        'valid': None,
+        'test': None
+    }
+    if valid_dataset is not None:
+        dataloaders['valid'] = torch.utils.data.DataLoader(
+                DatasetLoader(valid_dataset, dataclass, transform=datatransforms.valid),
+                batch_size=4, num_workers=8)
+    if test_dataset is not None:
+        dataloaders['test'] = torch.utils.data.DataLoader(
+                DatasetLoader(test_dataset, dataclass, transform=datatransforms.inference),
+                batch_size=4, num_workers=8)
+
+    model.train(dataloaders)
+    model.save(output_weights)
+
+
+def __clscomponents__inference(dataclass, dataset, model_weights, output):
+    dataclass = DataClass(dataclass)
+
+    temp_dpath = os.path.splitext(output)[0]
+
+    model = CLSCORE('resnet18', dataclass, model_weights, temp_dpath)
+
+    datatransforms = DataTransforms()
+    dataloader = torch.utils.data.DataLoader(
+                DatasetLoader(dataset, dataclass, transform=datatransforms.inference),
+                batch_size=4, num_workers=8)
+    
+    probs = model.inference(dataloader)
+    import pandas as pd
+    probs = pd.DataFrame(probs,
+                         index=dataloader.dataset.x,
+                         columns=dataclass.classes)
+
+    probs.to_csv(output, sep = '\t', header=True, index=True, index_label='image')
+
+
+def __clscomponents___train(args):
+    __clscomponents__train(args.dataclass, args.train, args.valid, args.test, args.input_weights, args.output_weights)
+
+
+def __clscomponents___inference(args):
+    __clscomponents__inference(args.dataclass, args.data, args.model_weights, args.output)
+
+
+def __clscomponents__parser():
+    import argparse
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers()
+
+    parser_train = subparsers.add_parser('train')
+    parser_train.add_argument('--dataclass', type=str, required=True)
+    parser_train.add_argument('--train', type=str, required=True)
+    parser_train.add_argument('--valid', type=str, required=False)
+    parser_train.add_argument('--test', type=str, required=False)
+    parser_train.add_argument('--input_weights', type=str, required=False)
+    parser_train.add_argument('--output_weights', type=str, required=True)
+    parser_train.set_defaults(func=__clscomponents___train)
+
+    parser_inference = subparsers.add_parser('inference')
+    parser_inference.add_argument('--dataclass', type=str, required=True)
+    parser_inference.add_argument('--data', type=str, required=True)
+    parser_inference.add_argument('--model_weights', type=str, required=True)
+    parser_inference.add_argument('--output', type=str, required=False)
+    parser_inference.set_defaults(func=__clscomponents___inference)
+
+    args = parser.parse_args()
+    args.func(args)
 
 
