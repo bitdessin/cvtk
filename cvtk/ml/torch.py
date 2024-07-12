@@ -10,6 +10,7 @@ import PIL.Image
 import PIL.ImageFile
 import PIL.ImageOps
 import PIL.ImageFilter
+from cvtk.ml import DataClass, SquareResize
 try:
     import torch
     import torchvision
@@ -17,178 +18,25 @@ except ImportError as e:
     raise ImportError('Unable to import torch and torchvision. '
                       'Install torch package to enable this feature.') from e
 
-PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
-
-
-
-
-class DataClass():
-    """A class to treat class labels
-
-    DataClass is designed to load class labels from a list, tuple or text file.
-    It provides a way to get class index from class name, and vice versa.
-
-    Args:
-        class_labels (tuple|list|str): A tuple or list,
-            or a path to a text file containing class labels.
-            
-    
-    Examples:
-        >>> from cvtk import DataClass
-        >>> class_labels = ['leaf', 'flower', 'root']
-        >>> dataclass = DataClass(class_labels)
-        >>> print(dataclass[1])
-        'flower'
-        >>> print(dataclass['flower'])
-        1
-        >>> len(dataclass)
-        3
-        >>> dataclass.classes
-        ['leaf', 'flower', 'root']
-        >>> 
-        >>> 
-        >>> class_labels = 'class_labels.txt'
-        >>> dataclass = DataClass(class_labels)
-        >>> print(dataclass[1])
-        'flower'
-        >>> print(dataclass['flower'])
-        1
-    """
-    def __init__(self, class_labels):
-        if isinstance(class_labels, list) or isinstance(class_labels, tuple):
-            self.classes = class_labels
-        elif isinstance(class_labels, str):
-            self.classes = self.__load_classnames(class_labels)
-        else:
-            raise TypeError('Expect list, tuple, or str for `class_labels` but {} was given.'.format(type(class_labels)))
-
-
-    def __len__(self):
-        return len(self.classes)
-
-
-    def __getitem__(self, i):
-        if isinstance(i, int) or isinstance(i, str):
-            return self.__getitem(i)
-        elif isinstance(i, list) or isinstance(i, tuple):
-            return [self.__getitem(_) for _ in i]
-        else:
-            raise TypeError('Expect int or str for `i` to get the class index or name but {} was given.'.format(type(i)))
-
-
-    def __getitem(self, i):
-        if isinstance(i, int):
-            return self.classes[i]
-        elif isinstance(i, str):
-            return self.classes.index(i)
-
-
-    def __load_classnames(self, fpath):
-        cl = []
-        with open(fpath, 'r') as f:
-            cl_ = f.read().splitlines()
-        for cl__ in cl_:
-            if (cl__ != ''):
-                cl.append(cl__)
-        return cl
-
-
-
-
-
-class SquareResize:
-    """Resize an image to a square shape
-
-    SquareResize provides a function to resize an image to a square shape.
-    The short edge of the image is changed to the same length as the long edge by adding padding,
-    and then the image is resized to a specific resolution.
-    The background of the padding area is set as extended from both ends of the image by default,
-    but it can be changed by the user with `bg_color`.
-    This class can be used in a pipeline of image processing with `torchvision.transforms.Compose`.
-
-    Args:
-        shape (int): The resolution of the square image.
-        bg_color (tuple): The color of the padding area. Default is None.
-            If None, the color is extended from both ends of the image.
-    
-    Examples:
-        >>> from cvtk import SquareResize
-        >>> sr = SquareResize(shape=600)
-        >>> img = sr('image.jpg')
-        >>> img.save('image_square.jpg')
-        >>>
-        >>> sr = SquareResize(shape=600, bg_color=(255, 255, 255))
-        >>> img = sr('image.jpg')
-        >>> img.save('image_square.jpg')
-        >>>
-        >>> import torchvision.transforms
-        >>> transform = torchvision.transforms.Compose([
-                SquareResize(256),
-                torchvision.transforms.RandomHorizontalFlip(0.5),
-                torchvision.transforms.RandomAffine(45),
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize([0.485, 0.456, 0.406],
-                                                 [0.229, 0.224, 0.225])
-            ])
-    """
-    def __init__(self, shape=600, bg_color = None):
-        self.shape = shape
-        self.bg_color = bg_color
-
-    def __call__(self, image, output_fpath=None):
-        if isinstance(image, PIL.Image.Image):
-            pass
-        elif isinstance(image, np.ndarray):
-            image = PIL.Image.fromarray(np.uint8(image))
-        elif isinstance(image, str):
-            image = PIL.Image.open(image)
-        else:
-            raise TypeError('Expect PIL.Image.Image, np.ndarray, or str for `image` but {} was given.'.format(type(img)))
-
-        w, h = image.size
-
-        image_square = None
-        if w == h:
-            image_square = image
-        else:
-            image_array = np.array(image)
-            image_square_ = np.zeros([max(w, h), max(w, h), 3])
-            if self.bg_color is not None:
-                image_square_[:, :, :] = self.bg_color
-
-            if w > h:
-                image_square_[0:int(w / 2), :, :] = image_array[0, :, :]
-                image_square_[int(w / 2):w, :, :] = image_array[-1, :, :]
-                image_square = PIL.Image.fromarray(np.uint8(image_square_))
-                image_square = image_square.filter(PIL.ImageFilter.GaussianBlur(3))
-                image_square.paste(image, (0, (w - h) // 2))
-            else:
-                image_square_[0:int(h / 2), :, :] = image_array[:, 0, :]
-                image_square_[int(h / 2):h, :, :] = image_array[:, -1, :]
-                image_square_ = np.transpose(image_square_, (1, 0, 2))
-                image_square = PIL.Image.fromarray(np.uint8(image_square_))
-                image_square = image_square.filter(PIL.ImageFilter.GaussianBlur(3))
-                image_square.paste(image, ((h - w) // 2, 0))
-        
-        image_square = image_square.resize((self.shape, self.shape))
-
-        if output_fpath is not None:
-            image_square.save(output_fpath)
-        
-        return image_square
-    
 
 
 
 class DataTransforms():
-    """Pipeline of image processing for training and inference
+    """Transform images for training and inference with PyTorch
 
-    DataPipeline provides a pipeline of image processing for training and inference.
-    
+    DataTransforms provides a set of image processing functions for training and inference with PyTorch.
+    By default, images are resized to a square shape with a specified resolution,
+    and then several fundamental image processing functions (transforms) implemented in PyTorch are applied.
+            
     Args:
         shape (int): The resolution of the square image.
         bg_color (tuple): The color of the padding area. Default is None.
             If None, the color is extended from both ends of the image.
+    
+    Attributes:
+        train (torchvision.transforms.Compose): A pipeline of image processing for training.
+        valid (torchvision.transforms.Compose): A pipeline of image processing for validation.
+        inference (torchvision.transforms.Compose): A pipeline of image processing for inference.
     """
     def __init__(self, shape=600, bg_color=None):
         self.train = torchvision.transforms.Compose([
@@ -215,50 +63,55 @@ class DataTransforms():
 
 
 
-class DatasetLoader(torch.utils.data.Dataset):
-    """A class to load images for training or testing
+class Dataset(torch.utils.data.Dataset):
+    """Generate dataset for training or testing with PyTorch 
 
-    DatasetLoader is designed to load images for training or testing with PyTorch.
-    The class can load images from a directory, a list, a tuple, or a tab-separated file.
+    Dataset is a class that generates a dataset for training or testing with PyTorch.
+    It loads images from a directory (the subdirectories are recursively loaded),
+    a list, a tuple, or a tab-separated (TSV) file.
+    For the TSV file, the first column is recognized as the the path to the image
+    and the second column as correct label if present.
+    For traning, validation, and test, data should be input with TSV files containing two columns.
+
+    Imbalanced data will make the model less sensitive to minority classes with small sample sizes
+    compared to normal data for balanced data.
+    Therefore, if models are created without properly addressing imbalanced data,
+    problems will arise in terms of accuracy, computational complexity, etc.
+    It is best to have balanced data during the data collection phase.
+    However, if it is difficult to obtain balanced data in some situations,
+    upsampling is used so that the samples in the minority class are equal in number to those in the major class.
+    In this class, upsampling is performed by specifying `upsampling=TRUE`.
+    
 
     Args:
-        dataset (str|list|tuple): A path to a directory, a list, a tuple, or a tab-separated file.
-            If a path to a directory is given, the class loads all images in the directory.
-            If a list or a tuple is given, the class loads images from the list or tuple.
-            If a tab-separated file is given, the class loads images from the file.
-        dataclass (DataClass): A class to treat class labels.
-        transform (None|torchvision.transforms.Compose): A pipeline of image processing.
+        dataset (str|list|tuple): A path to a directory, a list, a tuple, or a TSV file.
+        dataclass (DataClass): A DataClass instance. This dataclass is used to convert class labels to integers.
+        transform (None|torchvision.transforms.Compose): A transform pipeline of image processing.
         balance_train (bool): If True, the number of images in each class is balanced
 
     Examples:
-        >>> from cvtk import DataClass, DatasetLoader
-        >>> class_labels = ['leaf', 'flower', 'root']
-        >>> dataclass = DataClass
-        >>> dataset = 'dataset.txt'
-        >>> transform = torchvision.transforms.Compose([
-                SquareResize(256),
-                torchvision.transforms.RandomHorizontalFlip(0.5),
-                torchvision.transforms.RandomAffine(45),
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize([0.485, 0.456, 0.406],
-                                                 [0.229, 0.224, 0.225])
-            ])
-        >>> dataset = DatasetLoader(dataset, dataclass, transform, balance_train=True)
+        >>> from cvtk.ml import DataClass
+        >>> from cvtk.ml.torch import Dataset, DataTransforms
+        >>> 
+        >>> dataclass = DataClass(['leaf', 'flower', 'root'])
+        >>> train_images = 'train.txt'
+        >>> transforms = DataTransforms()
+        >>> 
+        >>> dataset = Dataset(train_images, dataclass, transforms.train)
         >>> print(len(dataset))
         100
         >>> img, label = dataset[0]
         >>> print(img.shape)
         >>> print(label)
     """
-
     def __init__(self,
                  dataset,
                  dataclass,
                  transform=None,
-                 balance_train=False):
+                 upsampling=False):
         
         self.transform = transform
-        self.balance_train = balance_train
+        self.upsampling = upsampling
         self.x , self.y = self.__load_images(dataset, dataclass)
 
     def __load_images(self, dataset, dataclass):
@@ -309,7 +162,7 @@ class DatasetLoader(torch.utils.data.Dataset):
                     x.append(d)
                     y.append(None)
 
-        if self.balance_train:
+        if self.upsampling:
             x, y = self.__unbiased_classes(x, y)
 
         return x, y
@@ -331,24 +184,16 @@ class DatasetLoader(torch.utils.data.Dataset):
 
 
     def __unbiased_classes(self, x, y):
-        # upsample the number of images in minority classes
-        # to the number of images in majority class
-        y0_idx = []
-        y1_idx = []
+        n_images = [[]] * len(self.dataclass)
         for i in range(len(y)):
-            if y[i] == 0:
-                y0_idx.append(i)
-            elif y[i] == 1:
-                y1_idx.append(i)
+            n_images[y[i]].append(i)
 
-        if len(y0_idx) > len(y1_idx):
-            y1_idx_sampled = random.choices(y1_idx, k=len(y0_idx) - len(y1_idx))
-            y.extend([y[i] for i in y1_idx_sampled])
-            x.extend([x[i] for i in y1_idx_sampled])
-        elif len(y0_idx) < len(y1_idx):
-            y0_idx_sampled = random.choices(y0_idx, k=len(y1_idx) - len(y0_idx))
-            y.extend([y[i] for i in y0_idx_sampled])
-            x.extend([x[i] for i in y0_idx_sampled])
+        n_images_max = max([len(n) for n in n_images])
+        for i in range(len(n_images)):
+            if len(n_images[i]) < n_images_max:
+                n_images_sampled = random.choices(n_images[i], k=n_images_max - len(n_images[i]))
+                x.extend([x[i] for i in n_images_sampled])
+                y.extend([y[i] for i in n_images_sampled])
 
         return x, y
 
@@ -356,35 +201,35 @@ class DatasetLoader(torch.utils.data.Dataset):
 
 
 class CLSCORE():
-    """A class provides training and inference functions for a classification model
+    """A class provides training and inference functions for a classification model using PyTorch
 
     CLSCORE is a class that provides training and inference functions for a classification model.
-    It requires a model, a data class, and a temporary directory path to save intermediate checkpoints and training logs automatically.
 
     Args:
-        model (torch.nn.Module): a model to be trained
-        weights (str): the name of the weights
-        dataclass (DataClass): a data class that contains class labels
-        temp_dirpath (str): a temporary directory path to save intermediate checkpoints and training logs
+        model (str|torch.nn.Module): A string to specify a model or a torch.nn.Module instance.
+        weights (str): A file path to model weights.
+        dataclass (str|list|tuple|DataClass): A DataClass instance containing class labels.
+            If string (of file path), list, tuple is given, it is converted to a DataClass instance.
+        temp_dirpath (str): A temporary directory path to save intermediate checkpoints and training logs.
 
     Attributes:
-        device (str): a device to run the model
-        dataclass (DataClass): a data class that contains class labels
-        model (torch.nn.Module): a model to be trained
-        temp_dirpath (str): a temporary directory path to save intermediate checkpoints and training logs
-        train_stats (dict): a dictionary to save training statistics
-        test_stats (dict): a dictionary to save test statistics
+        device (str): A device to run the model. Default is 'cuda' if available, otherwise 'cpu'.
+        dataclass (DataClass): A DataClass instance containing class labels.
+        model (torch.nn.Module): A model of torch.nn.Module instance.
+        temp_dirpath (str): A temporary directory path.
+        train_stats (dict): A dictionary to save training statistics
+        test_stats (dict): A dictionary to save test statistics
 
     Examples:
         >>> import torch
         >>> import torchvision
-        >>> import cvtk.torch
+        >>> from cvtk.ml.torch import CLSCORE
         >>>
         >>> dataclass = ['leaf', 'flower', 'root']
-        >>> model = cvtk.torch.CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
+        >>> m = CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
         >>> 
         >>> dataclass = 'class_label.txt'
-        >>> model = cvtk.torch.CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
+        >>> m = CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
     """
     def __init__(self, model, dataclass, weights=None, temp_dirpath=None):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -409,14 +254,33 @@ class CLSCORE():
 
 
     def __init_model(self, model, weights, n_classes):
-        module = None
-        if weights is None:
-            module = eval(f'torchvision.models.{model}(weights=None)')
-        else:
-            if os.path.exists(weights):
+        if isinstance(model, str):
+            if weights is None:
                 module = eval(f'torchvision.models.{model}(weights=None)')
             else:
-                module = eval(f'torchvision.models.{model}(weights=torchvision.models.{weights})')
+                if os.path.exists(weights):
+                    module = eval(f'torchvision.models.{model}(weights=None)')
+                else:
+                    module = eval(f'torchvision.models.{model}(weights=torchvision.models.{weights})')
+        
+        elif isinstance(model, str):
+            is_torch_model = False
+            for name in dir(torchvision.models):
+                obj = getattr(torchvision.models, name)
+                if isinstance(obj, type) and issubclass(obj, torch.nn.Module):
+                    if isinstance(model, obj):
+                        is_torch_model = True
+                        break
+            if is_torch_model:
+                module = model
+        
+        elif isinstance(model, torch.nn.Module):
+            module = model
+        
+        else:
+            raise ValueError('Invalid model type: {}'.format(type(model)))
+
+
 
         def __set_output(module, n_classes):
             last_layer_name = None
@@ -449,15 +313,17 @@ class CLSCORE():
             module.load_state_dict(torch.load(weights))
         
         return module
+    
 
 
     def __init_tempdir(self, temp_dirpath):
-        if temp_dirpath is None:
-            temp_dirpath = os.path.join(
-                os.getcwd(),
-                '{}_{}'.format(str(uuid.uuid4()).replace('-', '')[0:8],
-                              datetime.datetime.now().strftime('%Y%m%d%H%M%S')))
-        if not os.path.exists(temp_dirpath):
+        #if temp_dirpath is None:
+        #    return None
+        #    temp_dirpath = os.path.join(
+        #        os.getcwd(),
+        #        '{}_{}'.format(str(uuid.uuid4()).replace('-', '')[0:8],
+        #                      datetime.datetime.now().strftime('%Y%m%d%H%M%S')))
+        if (temp_dirpath is not None) and (not os.path.exists(temp_dirpath)):
             os.makedirs(temp_dirpath)
         return temp_dirpath
 
@@ -481,17 +347,19 @@ class CLSCORE():
                 which is saved in the temporary directory specified with ``temp_dirpath``.
         
         Examples:
-            >>> import cvtk.torch
+            >>> import torch
+            >>> from cvtk.ml import DataClass
+            >>> from cvtk.ml.torch import DataTransforms, Dataset, CLSCORE
             >>> 
-            >>> dataclass = ['leaf', 'flower', 'root']
-            >>> model = cvtk.torch.CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
+            >>> dataclass = DataClass(['leaf', 'flower', 'root'])
+            >>> model = CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
             >>>
             >>> # dataset
             >>> transform = DataTransforms()
             >>> dataloaders = {
-            >>>     'train': cvtk.torch.DatasetLoader('train.txt', dataclass, transform.train)
-            >>>     'valid': cvtk.torch.DatasetLoader('valid.txt', dataclass, transform.valid)
-            >>>     'test': cvtk.torch.DatasetLoader('test.txt', dataclass, transform.inference)
+            >>>     'train': torch.utils.data.DataLoader(Dataset('train.txt', dataclass, transform.train)),
+            >>>     'valid': torch.utils.data.DataLoader(Dataset('valid.txt', dataclass, transform.valid)),
+            >>>     'test': torch.utils.data.DataLoader(Dataset('test.txt', dataclass, transform.inference))
             >>> }
             >>>
             >>> # training
@@ -542,7 +410,8 @@ class CLSCORE():
                     'probs': probs
                 }
             
-            self.save(os.path.join(self.temp_dirpath, f'checkpoint_latest.pth'))
+            if self.temp_dirpath is not None:
+                self.save(os.path.join(self.temp_dirpath, f'checkpoint_latest.pth'))
 
 
     def __valid_dataloaders(self, dataloaders):
@@ -559,6 +428,8 @@ class CLSCORE():
 
     def __update_model_weight(self):
         last_epoch = 0
+        if self.temp_dirpath is None:
+            return last_epoch
 
         trainstats_fpath = os.path.join(self.temp_dirpath, 'train_stats.txt')
         chk_fpath = os.path.join(self.temp_dirpath, 'checkpoint_latest.pth')
@@ -585,7 +456,6 @@ class CLSCORE():
             last_epoch = max(self.train_stats['epoch'])
             
         return last_epoch
-
 
 
     def __train(self, dataloader, phase, criterion, optimizer):
@@ -626,50 +496,53 @@ class CLSCORE():
 
 
 
-    def save(self, output_fpath):
-        """Save the model and training statistics
+    def save(self, output):
+        """Save model weights and training logs
 
-        Save the model and training statistics in the provided output file path. The output file path should end with '.pth'.
-        In addition to the model weights, the training statistics are saved in a text file with the same name as the output file path but with '.train_stats.txt' extension.
-        In addition, if test data is given, the test statistics are saved in a text file with the same name as the output file path but with '.test_outputs.txt' extension.
+        Save model weights in a file specified with the `output` argument.
+        The extension of the output file should be '.pth'; if not, '.pth' is appended to the output file path.
+        Additionally, if training logs and test outputs are present,
+        they are saved in text files with the same name as weights
+        but with '.train_stats.txt' and '.test_outputs.txt' extensions, respectively.
 
         Args:
-            output_fpath (str): an output file path to save the model and training statistics
-
+            output (str): A file path to save the model weights.
 
         Examples:
-            >>> import cvtk.torch
+            >>> import torch
+            >>> from cvtk.ml import DataClass
+            >>> from cvtk.ml.torch import DataTransforms, Dataset, CLSCORE
             >>> 
-            >>> dataclass = ['leaf', 'flower', 'root']
-            >>> model = cvtk.torch.CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
+            >>> dataclass = DataClass(['leaf', 'flower', 'root'])
+            >>> model = CLSCORE('efficientnet_b7', dataclass, 'EfficientNet_B7_Weights.DEFAULT')
             >>>
             >>> # dataset
             >>> transform = DataTransforms()
             >>> dataloaders = {
-            >>>     'train': cvtk.torch.DatasetLoader('train.txt', dataclass, transform.train)
-            >>>     'valid': cvtk.torch.DatasetLoader('valid.txt', dataclass, transform.valid)
-            >>>     'test': cvtk.torch.DatasetLoader('test.txt', dataclass, transform.inference)
+            >>>     'train': torch.utils.data.DataLoader(Dataset('train.txt', dataclass, transform.train)),
+            >>>     'valid': torch.utils.data.DataLoader(Dataset('valid.txt', dataclass, transform.valid)),
+            >>>     'test': torch.utils.data.DataLoader(Dataset('test.txt', dataclass, transform.inference))
             >>> }
             >>>
             >>> # training
             >>> model.train(dataloaders)
-            >>> model.save('model.pth')
+            >>> model.save('output/plant_organ_classification.pth')
         """
-        if not output_fpath.endswith('.pth'):
-            output_fpath += '.pth'
-        if not os.path.exists(os.path.dirname(output_fpath)):
-            os.makedirs(os.path.dirname(output_fpath))
+        if not output.endswith('.pth'):
+            output += '.pth'
+        if not os.path.exists(os.path.dirname(output)):
+            os.makedirs(os.path.dirname(output))
 
         self.model = self.model.to('cpu')
         
-        torch.save(self.model.state_dict(), output_fpath)
+        torch.save(self.model.state_dict(), output)
         self.model = self.model.to(self.device)
 
-        output_log_fpath = os.path.splitext(output_fpath)[0] + '.train_stats.txt'
+        output_log_fpath = os.path.splitext(output)[0] + '.train_stats.txt'
         self.__write_train_stats(output_log_fpath)
 
         if self.test_stats is not None:
-            output_log_fpath = os.path.splitext(output_fpath)[0] + '.test_outputs.txt'
+            output_log_fpath = os.path.splitext(output)[0] + '.test_outputs.txt'
             self.__write_test_outputs(output_log_fpath)
 
 
@@ -699,15 +572,32 @@ class CLSCORE():
                 
 
 
-
     def inference(self, dataloader, output='prob+label', format='pandas'):
-        """Inference the model with the provided dataloader
+        """Perform inference with the input images
 
-        Inference the model with the provided dataloader. The output is a list of probabilities for each class.
+        Perform inference with the input images with the trained model.
+        The format of ouput can be specified with `output` and `format` arguments.
 
         Args:
-            dataloader (torch.utils.data.DataLoader): a dataloader for inference
-            output (str): the output type. Default is 'prob'.
+            dataloader (torch.utils.data.DataLoader): A dataloader for inference.
+            output (str): A string to specify the information of inference result for output.
+                Probabilities ('prob'), labels ('label'), or both ('prob+label') can be specified.
+            format (str): A string to specify output format in Pandas Data.Frame ('pandas'),
+                NumPy array ('numpy'), list ('list'), or tuple ('tuple').
+        
+        Examples:
+            >>> import torch
+            >>> from cvtk.ml import DataClass
+            >>> from cvtk.ml.torch import DataTransforms, Dataset, CLSCORE
+            >>> 
+            >>> dataclass = DataClass(['leaf', 'flower', 'root'])
+            >>> model = CLSCORE('efficientnet_b7', dataclass, 'plant_organs.pth')
+            >>>
+            >>> transform = DataTransforms()
+            >>> images = torch.utils.data.DataLoader(Dataset('./images', dataclass, transform.inference))
+            >>> 
+            >>> probs = model.inference(dataloader)
+            >>> probs.to_csv('inference_results.txt', sep = '\t', header=True, index=True, index_label='image')
         """
         self.model = self.model.to(self.device)
         self.model.eval()
@@ -756,18 +646,29 @@ class CLSCORE():
                                     index=images, columns=['prediction'] + cl)
 
 
-def plot_trainlog(train_log, output=None, width=600, height=800, scale=1.0):
-    """Plot loss and accuracy statistics from training logs
 
-    Plot loss and accuracy statistics from training logs. The training logs are saved in a tab-separated file.
+def plot_trainlog(train_log, output=None, width=600, height=800, scale=1.0):
+    """Plot training log
+
+    Plot loss and accuracy at each epoch from the training log which
+    is expected to be saved in a tab-separated file with the following format:
+
+    ::
+
+        epoch  train_loss  train_acc  valid_loss  valid_acc
+        1      1.40679     0.22368    1.24780     0.41667
+        2      1.21213     0.48684    1.09401     0.83334
+        3      1.00425     0.81578    0.88967     0.83334
+        4      0.78659     0.82894    0.64055     0.91666
+        5      0.46396     0.96052    0.39010     0.91666
+
     
     Args:
-        train_stats (str): a path to a tab-separated file containing training logs
-        output (str): a directory path to save the output images
-        width (int): the width of the output image
-        height (int): the height of the output image
-        scale (float): the scale of the output image
-
+        train_log (str): A path to a tab-separated file containing training logs.
+        output (str): A file path to save the output images. If not provided, the plot is shown on display.
+        width (int): A width of the output image.
+        height (int): A height of the output image.
+        scale (float): The scale of the output image, which is used to adjust the resolution.
     """
     import pandas as pd
     import plotly.express as px
@@ -814,22 +715,36 @@ def plot_trainlog(train_log, output=None, width=600, height=800, scale=1.0):
         fig.write_image(output, width=width, height=height, scale=scale)
     else:
         fig.show()
-    
     return fig
 
 
 def plot_cm(test_outputs, output=None, width=600, height=600, scale=1.0):
     """Plot a confusion matrix from test outputs
 
-    Plot a confusion matrix from test outputs. The test outputs are saved in a tab-separated file.
+    Plot a confusion matrix from test outputs.
+    The test outputs are saved in a tab-separated file,
+    where the first column is the path to the image, the second column is the true label,
+    and the following columns are the predicted probabilities for each class.
+    The example of the test outputs is as follows:
+
+    ::
+
+        image  label   leaf     flower   root
+        1.JPG  leaf    0.54791  0.20376  0.24833
+        2.JPG  root    0.06158  0.02184  0.91658
+        3.JPG  leaf    0.70320  0.04808  0.24872
+        4.JPG  flower  0.04723  0.90061  0.05216
+        5.JPG  flower  0.30027  0.63067  0.06906
+        6.JPG  leaf    0.52753  0.43249  0.03998
+        7.JPG  root    0.21375  0.14829  0.63796
+    
 
     Args:
-        test_outputs (str): a path to a tab-separated file containing test outputs
-        output (str): a directory path to save the output images
-        width (int): the width of the output image
-        height (int): the height of the output image
-        scale (float): the scale of the output image
-    
+        test_outputs (str): A path to a tab-separated file containing test outputs.
+        output (str): A file path to save the output images. If not provided, the plot is shown on display.
+        width (int): A width of the output image.
+        height (int): A height of the output image.
+        scale (float): The scale of the output image, which is used to adjust the resolution.
     """
     import pandas as pd
     import plotly.graph_objects as go
@@ -869,18 +784,23 @@ def plot_cm(test_outputs, output=None, width=600, height=600, scale=1.0):
 
 
 
-def create_cls(project, source='cvtk'):
-    """Create a classification project
+def generate_source(project, task='classification', module='cvtk'):
+    """Generate source code for training and inference of a classification model using PyTorch
 
-    Generate scripts to train and inference a classification model using torch.
-
+    This function generates a Python script for training and inference of a classification model using PyTorch.
+    There two types of scripts can be generated:
+    one with importation of cvtk and the other without importation of cvtk.
+    The scrit with importation of cvtk keeps simple and easy-to-understand code as most complex functions are implemented in cvtk.
+    In contrast, the script without importation of cvtk contains all functions implemented with torch and torchvision.
+    The source code is long and complex, but it is useful when you want to customize the functions or use the script without cvtk.
+    
     Args:
-        project (str): A project name to create a script.
-        standalone (bool): If True, scripts without importation of cvtk will be generated.
-
+        project (str): A file path to save the script.
+        task (str): The task type of project. Only 'classification' is supported in the current version.
+        module (str): Script with importation of cvtk ('cvtk') or not ('torch').
     """
-    if source not in ['cvtk', 'torch']:
-        raise ValueError(f'cvtk.torch.create_cls creates source code based on cvtk or torch, but {source} was given.')
+    if task.lower() not in ['cls', 'classification']:
+        raise ValueError('cvtk.torch.generate_source only can generate source codes for classification.')
 
     if not project.endswith('.py'):
         project = project + '.py'
@@ -891,13 +811,23 @@ def create_cls(project, source='cvtk'):
     parser_str = parser_str.replace('import argparse', '')
 
     # import component
-    cvtk_modules = ['DataClass', 'DatasetLoader', 'SquareResize', 'DataTransforms', 'CLSCORE']
-    cvtk_functions = 'from cvtk.torch import {}'.format(', '.join(cvtk_modules))
-    if source == 'torch':
+    cvtk_modules = [
+        {'cvtk.ml': ['DataClass', 'SquareResize']},
+        {'cvtk.ml.torch': ['DataTransforms', 'Dataset', 'CLSCORE']}
+    ]
+    if module.lower() == 'cvtk':
+        cvtk_functions = ''
+        for cvtk_module in cvtk_modules:
+            for m_, fs_ in cvtk_module.items():
+                cvtk_functions += 'from {} import {}\n'.format(m_, ', '.join(fs_))
+    elif module.lower() == 'torch':
         cvtk_functions = '\n\n'
         for cvtk_module in cvtk_modules:
-            cvtk_functions += '\n' + inspect.getsource(eval(cvtk_module))
-    
+            for fs_ in cvtk_module.values():
+                for f_ in fs_:
+                    cvtk_functions += '\n' + inspect.getsource(eval(f_))
+    else:
+        raise ValueError(f'cvtk.torch.generate_source creates source code based on cvtk or torch, but {module} was given.')
 
     # template
     tmpl = f'''import os
@@ -964,18 +894,18 @@ def __clscomponents__train(dataclass, train_dataset, valid_dataset, test_dataset
     datatransforms = DataTransforms()
     dataloaders = {
         'train': torch.utils.data.DataLoader(
-                DatasetLoader(train_dataset, dataclass, transform=datatransforms.train),
+                Dataset(train_dataset, dataclass, transform=datatransforms.train),
                 batch_size=4, num_workers=8, shuffle=True),
         'valid': None,
         'test': None
     }
     if valid_dataset is not None:
         dataloaders['valid'] = torch.utils.data.DataLoader(
-                DatasetLoader(valid_dataset, dataclass, transform=datatransforms.valid),
+                Dataset(valid_dataset, dataclass, transform=datatransforms.valid),
                 batch_size=4, num_workers=8)
     if test_dataset is not None:
         dataloaders['test'] = torch.utils.data.DataLoader(
-                DatasetLoader(test_dataset, dataclass, transform=datatransforms.inference),
+                Dataset(test_dataset, dataclass, transform=datatransforms.inference),
                 batch_size=4, num_workers=8)
 
     model.train(dataloaders, epoch=5)
@@ -991,7 +921,7 @@ def __clscomponents__inference(dataclass, dataset, model_weights, output):
 
     datatransforms = DataTransforms()
     dataloader = torch.utils.data.DataLoader(
-                DatasetLoader(dataset, dataclass, transform=datatransforms.inference),
+                Dataset(dataset, dataclass, transform=datatransforms.inference),
                 batch_size=4, num_workers=8)
     
     probs = model.inference(dataloader)
