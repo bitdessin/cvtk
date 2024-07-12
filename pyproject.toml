@@ -1,8 +1,9 @@
-[tool.poetry]
+[project]
 name = 'cvtk'
-version = '0.2.2'
 description = 'Computer Vision Toolkit'
-authors = ['Jianqiang Sun <sun@bitdessin.dev>']
+authors = [
+    { name = 'Jianqiang Sun', email = 'sun@bitdessin.dev' },
+]
 readme = 'README.md'
 classifiers = [
         'Development Status :: 3 - Alpha',
@@ -11,59 +12,43 @@ classifiers = [
         'Programming Language :: Python :: 3',
         'Topic :: Scientific/Engineering :: Image Recognition',
 ]
-license = 'MIT'
+license = {'text' = 'MIT'}
+requires-python = '>=3.10'
+dependencies = [
+    'Pillow',
+    'numpy >= 1.21',
+    'pandas >= 1.3',
+]
+dynamic = ['version']
 
 
-[tool.poetry.urls]
+[project.urls]
 Homepage = 'https://github.com/bitdessin/cvtk'
 Issues = 'https://github.com/bitdessin/cvtk/issues'
 
 
-[tool.poetry.scripts]
+[project.scripts]
 cvtk = 'cvtk.scripts.cvtk:main'
 
 
-[tool.poetry.dependencies]
-Pillow = '*'
-numpy = '>= 1.21'
-pandas = '>= 1.3'
-
-
-[tool.poetry.group.dev.dependencies]
-python = '>=3.10'
-requests = '*'
-Pillow = '*'
-numpy = '*'
-pandas = '>= 1.3'
-matplotlib = '*'
-torch = '*'
-torchvision = '*'
-pycocotools = '*'
-plotly = '*'
-kaleido = '*'
-scikit-learn = '*'
-
-
-[tool.poetry.group.docs]
-optional = true
-
-
-[tool.poetry.group.docs.dependencies]
-sphinx-rtd-theme = '*'
-sphinxcontrib-napoleon = '*'
-requests = '*'
-Pillow = '*'
-numpy = '*'
-pandas = '*'
-matplotlib = '*'
-torch = '*'
-torchvision = '*'
-pycocotools = '*'
-plotly = '*'
-kaleido = '*'
-scikit-learn = '*'
+[project.optional-dependencies]
+full = [
+    'requests',
+    'matplotlib',
+    'torch',
+    'torchvision',
+    'pycocotools',
+    'plotly',
+    'kaleido',
+    'scikit-learn',
+]
+docs = [
+    'cvtk[full]',
+    'sphinx-rtd-theme',
+    'sphinxcontrib-napoleon',
+]
 
 
 [build-system]
-requires = ['poetry-core>=1.0.0']
-build-backend = 'poetry.core.masonry.api'
+requires = ['setuptools>=61.0']
+build-backend = 'setuptools.build_meta'
