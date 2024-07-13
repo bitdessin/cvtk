@@ -2,7 +2,7 @@ import os
 import setuptools
 
 def get_version():
-    with open(os.path.join(os.path.dirname(__file__), 'cvtk', '__init__.py'), encoding='utf-8') as fh:
+    with open(os.path.join(os.path.dirname(__file__), 'src', 'cvtk', '__init__.py'), encoding='utf-8') as fh:
         for line in fh:
             if line.startswith('__version__'):
                 return line.split('=')[-1].strip().strip("'")
