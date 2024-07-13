@@ -1,11 +1,15 @@
 cvtk
-=========
+####
 
 Hello, world!
 
 
 .. toctree::
     :maxdepth: 1
+    :hidden:
 
-    api
+    installation
+    tutorials
+    docs
+
 
