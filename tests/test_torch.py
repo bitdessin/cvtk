@@ -5,7 +5,7 @@ import unittest
 
 class TestTorch(unittest.TestCase):
 
-    def cls_cvtk(self):
+    def test_cls_cvtk(self):
         cvtk.ml.torch.generate_source('cls.cvtk.py', module='cvtk')
 
         output = subprocess.run(['python', 'cls.cvtk.py', 'train',
@@ -32,7 +32,7 @@ class TestTorch(unittest.TestCase):
         fig.show()
 
 
-    def cls_torch(self):
+    def test_cls_torch(self):
         cvtk.ml.torch.generate_source('cls.torch.py', module='torch')
 
         subprocess.run(['python', 'cls.cvtk.py', 'train',
