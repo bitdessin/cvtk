@@ -1,7 +1,5 @@
 import os
 import random
-import datetime
-import uuid
 import gzip
 import inspect
 import numpy as np
@@ -10,10 +8,11 @@ import PIL.Image
 import PIL.ImageFile
 import PIL.ImageOps
 import PIL.ImageFilter
-from cvtk.ml import DataClass, SquareResize
+from . import DataClass, SquareResize
 try:
     import torch
     import torchvision
+    import torchvision.transforms.v2
 except ImportError as e:
     raise ImportError('Unable to import torch and torchvision. '
                       'Install torch package to enable this feature.') from e
@@ -40,24 +39,28 @@ class DataTransforms():
     """
     def __init__(self, shape=600, bg_color=None):
         self.train = torchvision.transforms.Compose([
-            SquareResize(shape, bg_color),
-            torchvision.transforms.RandomHorizontalFlip(0.5),
-            torchvision.transforms.RandomAffine(45),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize([0.485, 0.456, 0.406],
-                                             [0.229, 0.224, 0.225])
+            torchvision.transforms.v2.ToImage(),
+            torchvision.transforms.v2.Resize(size=(256, 256), antialias=True),
+            torchvision.transforms.v2.RandomResizedCrop(size=(224, 224), antialias=True),
+            torchvision.transforms.v2.RandomHorizontalFlip(0.5),
+            torchvision.transforms.v2.RandomAffine(45),
+            torchvision.transforms.v2.ToDtype(torch.float32, scale=True),
+            torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406],
+                                                std=[0.229, 0.224, 0.225])
         ])
         self.valid = torchvision.transforms.Compose([
-            SquareResize(shape, bg_color),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize([0.485, 0.456, 0.406],
-                                             [0.229, 0.224, 0.225])
+            torchvision.transforms.v2.ToImage(),
+            torchvision.transforms.v2.Resize(size=(224, 224), antialias=True),
+            torchvision.transforms.v2.ToDtype(torch.float32, scale=True),
+            torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406],
+                                                std=[0.229, 0.224, 0.225])
         ])
         self.inference = torchvision.transforms.Compose([
-            SquareResize(shape, bg_color),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize([0.485, 0.456, 0.406],
-                                            [0.229, 0.224, 0.225])
+            torchvision.transforms.v2.ToImage(),
+            torchvision.transforms.v2.Resize(size=(224, 224), antialias=True),
+            torchvision.transforms.v2.ToDtype(torch.float32, scale=True),
+            torchvision.transforms.v2.Normalize(mean=[0.485, 0.456, 0.406],
+                                                std=[0.229, 0.224, 0.225])
         ])
     
 
@@ -317,12 +320,6 @@ class CLSCORE():
 
 
     def __init_tempdir(self, temp_dirpath):
-        #if temp_dirpath is None:
-        #    return None
-        #    temp_dirpath = os.path.join(
-        #        os.getcwd(),
-        #        '{}_{}'.format(str(uuid.uuid4()).replace('-', '')[0:8],
-        #                      datetime.datetime.now().strftime('%Y%m%d%H%M%S')))
         if (temp_dirpath is not None) and (not os.path.exists(temp_dirpath)):
             os.makedirs(temp_dirpath)
         return temp_dirpath
@@ -808,29 +805,22 @@ def generate_source(project, task='classification', module='cvtk'):
     if not project.endswith('.py'):
         project = project + '.py'
 
-    # parser component
-    parser_str = inspect.getsource(__clscomponents__parser)
-    parser_str = parser_str.replace('def __clscomponents__parser():', 'if __name__ == \'__main__\':')
-    parser_str = parser_str.replace('import argparse', '')
-
     # import component
     cvtk_modules = [
         {'cvtk.ml': ['DataClass', 'SquareResize']},
         {'cvtk.ml.torch': ['DataTransforms', 'Dataset', 'CLSCORE']}
     ]
-    if module.lower() == 'cvtk':
-        cvtk_functions = ''
-        for cvtk_module in cvtk_modules:
-            for m_, fs_ in cvtk_module.items():
-                cvtk_functions += 'from {} import {}\n'.format(m_, ', '.join(fs_))
-    elif module.lower() == 'torch':
-        cvtk_functions = '\n\n'
-        for cvtk_module in cvtk_modules:
-            for fs_ in cvtk_module.values():
+
+    function_imports = ''
+    for cvtk_module in cvtk_modules:
+        for m_, fs_ in cvtk_module.items():
+            if module.lower() == 'cvtk':
+                function_imports += 'from {} import {}\n'.format(m_, ', '.join(fs_))
+            elif module.lower() == 'torch':
                 for f_ in fs_:
-                    cvtk_functions += '\n' + inspect.getsource(eval(f_))
-    else:
-        raise ValueError(f'cvtk.torch.generate_source creates source code based on cvtk or torch, but {module} was given.')
+                    function_imports += '\n\n\n' + inspect.getsource(eval(f_))
+            else:
+                raise ValueError(f'cvtk.torch.generate_source creates source code based on cvtk or torch, but {module} was given.')
 
     # template
     tmpl = f'''import os
@@ -843,19 +833,85 @@ import numpy as np
 import pandas as pd
 import torch
 import torchvision
-{cvtk_functions}
+import torchvision.transforms.v2
+{function_imports}
+
+def train(dataclass, train_dataset, valid_dataset, test_dataset, input_weights, output_weights):
+    dataclass = DataClass(dataclass)
+    
+    temp_dpath = os.path.splitext(output_weights)[0]
+
+    if input_weights is None:
+        input_weights = 'ResNet18_Weights.DEFAULT'
+    model = CLSCORE('resnet18', dataclass, input_weights, temp_dpath)
+    
+    datatransforms = DataTransforms()
+    dataloaders = {{
+        'train': torch.utils.data.DataLoader(
+                Dataset(train_dataset, dataclass, transform=datatransforms.train),
+                batch_size=4, num_workers=8, shuffle=True),
+        'valid': None,
+        'test': None
+    }}
+    if valid_dataset is not None:
+        dataloaders['valid'] = torch.utils.data.DataLoader(
+                Dataset(valid_dataset, dataclass, transform=datatransforms.valid),
+                batch_size=4, num_workers=8)
+    if test_dataset is not None:
+        dataloaders['test'] = torch.utils.data.DataLoader(
+                Dataset(test_dataset, dataclass, transform=datatransforms.inference),
+                batch_size=4, num_workers=8)
+
+    model.train(dataloaders, epoch=5)
+    model.save(output_weights)
 
 
-{inspect.getsource(__clscomponents__train)}
+def inference(dataclass, dataset, model_weights, output):
+    dataclass = DataClass(dataclass)
 
-{inspect.getsource(__clscomponents__inference)}
+    temp_dpath = os.path.splitext(output)[0]
+
+    model = CLSCORE('resnet18', dataclass, model_weights, temp_dpath)
+
+    datatransforms = DataTransforms()
+    dataloader = torch.utils.data.DataLoader(
+                Dataset(dataset, dataclass, transform=datatransforms.inference),
+                batch_size=4, num_workers=8)
+    
+    probs = model.inference(dataloader)
+    probs.to_csv(output, sep = '\t', header=True, index=True, index_label='image')
 
 
-{inspect.getsource(__clscomponents___train)}
+def _train(args):
+    train(args.dataclass, args.train, args.valid, args.test, args.input_weights, args.output_weights)
 
-{inspect.getsource(__clscomponents___inference)}
 
-{parser_str}
+def _inference(args):
+    inference(args.dataclass, args.data, args.model_weights, args.output)
+
+    
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers()
+
+    parser_train = subparsers.add_parser('train')
+    parser_train.add_argument('--dataclass', type=str, required=True)
+    parser_train.add_argument('--train', type=str, required=True)
+    parser_train.add_argument('--valid', type=str, required=False)
+    parser_train.add_argument('--test', type=str, required=False)
+    parser_train.add_argument('--input_weights', type=str, required=False)
+    parser_train.add_argument('--output_weights', type=str, required=True)
+    parser_train.set_defaults(func=_train)
+
+    parser_inference = subparsers.add_parser('inference')
+    parser_inference.add_argument('--dataclass', type=str, required=True)
+    parser_inference.add_argument('--data', type=str, required=True)
+    parser_inference.add_argument('--model_weights', type=str, required=True)
+    parser_inference.add_argument('--output', type=str, required=False)
+    parser_inference.set_defaults(func=_inference)
+
+    args = parser.parse_args()
+    args.func(args)
 
 
 """
@@ -878,89 +934,13 @@ python __projectname__ inference \\
 """
     '''
 
-    tmpl = tmpl.replace('__clscomponents__', '')
     tmpl = tmpl.replace('__projectname__', project)
    
     with open(project, 'w') as fh:
         fh.write(tmpl)
 
 
-def __clscomponents__train(dataclass, train_dataset, valid_dataset, test_dataset, input_weights, output_weights):
-    dataclass = DataClass(dataclass)
-    
-    temp_dpath = os.path.splitext(output_weights)[0]
-
-    if input_weights is None:
-        input_weights = 'ResNet18_Weights.DEFAULT'
-    model = CLSCORE('resnet18', dataclass, input_weights, temp_dpath)
-    
-    datatransforms = DataTransforms()
-    dataloaders = {
-        'train': torch.utils.data.DataLoader(
-                Dataset(train_dataset, dataclass, transform=datatransforms.train),
-                batch_size=4, num_workers=8, shuffle=True),
-        'valid': None,
-        'test': None
-    }
-    if valid_dataset is not None:
-        dataloaders['valid'] = torch.utils.data.DataLoader(
-                Dataset(valid_dataset, dataclass, transform=datatransforms.valid),
-                batch_size=4, num_workers=8)
-    if test_dataset is not None:
-        dataloaders['test'] = torch.utils.data.DataLoader(
-                Dataset(test_dataset, dataclass, transform=datatransforms.inference),
-                batch_size=4, num_workers=8)
-
-    model.train(dataloaders, epoch=5)
-    model.save(output_weights)
 
 
-def __clscomponents__inference(dataclass, dataset, model_weights, output):
-    dataclass = DataClass(dataclass)
-
-    temp_dpath = os.path.splitext(output)[0]
-
-    model = CLSCORE('resnet18', dataclass, model_weights, temp_dpath)
-
-    datatransforms = DataTransforms()
-    dataloader = torch.utils.data.DataLoader(
-                Dataset(dataset, dataclass, transform=datatransforms.inference),
-                batch_size=4, num_workers=8)
-    
-    probs = model.inference(dataloader)
-    probs.to_csv(output, sep = '\t', header=True, index=True, index_label='image')
-
-
-def __clscomponents___train(args):
-    __clscomponents__train(args.dataclass, args.train, args.valid, args.test, args.input_weights, args.output_weights)
-
-
-def __clscomponents___inference(args):
-    __clscomponents__inference(args.dataclass, args.data, args.model_weights, args.output)
-
-
-def __clscomponents__parser():
-    import argparse
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers()
-
-    parser_train = subparsers.add_parser('train')
-    parser_train.add_argument('--dataclass', type=str, required=True)
-    parser_train.add_argument('--train', type=str, required=True)
-    parser_train.add_argument('--valid', type=str, required=False)
-    parser_train.add_argument('--test', type=str, required=False)
-    parser_train.add_argument('--input_weights', type=str, required=False)
-    parser_train.add_argument('--output_weights', type=str, required=True)
-    parser_train.set_defaults(func=__clscomponents___train)
-
-    parser_inference = subparsers.add_parser('inference')
-    parser_inference.add_argument('--dataclass', type=str, required=True)
-    parser_inference.add_argument('--data', type=str, required=True)
-    parser_inference.add_argument('--model_weights', type=str, required=True)
-    parser_inference.add_argument('--output', type=str, required=False)
-    parser_inference.set_defaults(func=__clscomponents___inference)
-
-    args = parser.parse_args()
-    args.func(args)
 
 

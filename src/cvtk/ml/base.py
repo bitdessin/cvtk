@@ -4,7 +4,6 @@ import PIL.ImageFile
 import PIL.ImageOps
 import PIL.ImageFilter
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
-import cvtk
 
 
 class DataClass():
@@ -130,7 +129,14 @@ class SquareResize():
         self.resample = resample
 
     def __call__(self, image, output_fpath=None):
-        im = cvtk.imread(image, format='PIL')
+        if isinstance(image, str):
+            im = PIL.Image.open(image)
+        elif isinstance(image, PIL.Image.Image):
+            im = image
+        elif isinstance(image, np.ndarray):
+            im = PIL.Image.fromarray(image)
+        else:
+            raise TypeError('Expect str, PIL.Image.Image, or np.ndarray for `image` but {} was given.'.format(type(image)))
 
         scale_ratio = self.shape / max(im.size)
         im.resize((int(im.width * scale_ratio), int(im.height * scale_ratio)), resample=self.resample)
