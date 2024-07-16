@@ -1,0 +1,4 @@
+cucumber
+eggplant
+strawberry
+tomato
