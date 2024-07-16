@@ -8,7 +8,7 @@ import PIL.Image
 import PIL.ImageFile
 import PIL.ImageOps
 import PIL.ImageFilter
-from . import DataClass, SquareResize
+from . import DataClass
 try:
     import torch
     import torchvision
@@ -416,10 +416,19 @@ class CLSCORE():
             raise TypeError('Expect dict for `dataloaders` but {} was given.'.format(type(dataloaders)))
         if 'train' not in dataloaders:
             raise ValueError('Train dataset is required for training but not provided.')
+        else:
+            if len(dataloaders['train'].dataset) == 0:
+                raise ValueError('Train dataset is empty. Check the dataset.')
         if 'valid' not in dataloaders:
             dataloaders['valid'] = None
+        else:
+            if len(dataloaders['valid'].dataset) == 0:
+                raise ValueError('Validation dataset is empty. Check the dataset.')
         if 'test' not in dataloaders:
             dataloaders['test'] = None
+        else:
+            if len(dataloaders['test'].dataset) == 0:
+                raise ValueError('Test dataset is empty. Check the dataset.')
         return dataloaders
 
 
@@ -528,7 +537,8 @@ class CLSCORE():
         if not output.endswith('.pth'):
             output += '.pth'
         if not os.path.exists(os.path.dirname(output)):
-            os.makedirs(os.path.dirname(output))
+            if os.path.dirname(output) != '':
+                os.makedirs(os.path.dirname(output))
 
         self.model = self.model.to('cpu')
         
@@ -807,7 +817,7 @@ def generate_source(project, task='classification', module='cvtk'):
 
     # import component
     cvtk_modules = [
-        {'cvtk.ml': ['DataClass', 'SquareResize']},
+        {'cvtk.ml': ['DataClass']},
         {'cvtk.ml.torch': ['DataTransforms', 'Dataset', 'CLSCORE']}
     ]
 
@@ -862,7 +872,7 @@ def train(dataclass, train_dataset, valid_dataset, test_dataset, input_weights, 
                 Dataset(test_dataset, dataclass, transform=datatransforms.inference),
                 batch_size=4, num_workers=8)
 
-    model.train(dataloaders, epoch=5)
+    model.train(dataloaders, epoch=2)
     model.save(output_weights)
 
 
@@ -938,9 +948,5 @@ python __projectname__ inference \\
    
     with open(project, 'w') as fh:
         fh.write(tmpl)
-
-
-
-
 
 
