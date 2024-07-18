@@ -2,13 +2,14 @@ import os
 import random
 import gzip
 import inspect
+import filetype
 import numpy as np
 import pandas as pd
 import PIL.Image
 import PIL.ImageFile
 import PIL.ImageOps
 import PIL.ImageFilter
-from . import DataClass
+from .data import DataClass
 try:
     import torch
     import torchvision
@@ -23,7 +24,7 @@ except ImportError as e:
 def DataTransform(shape, is_train=False):
     """Generate image preprocessing pipeline
 
-    DataTransforms is a function to generate image preprocessing pipeline for training or inference.
+    DataTransforms is a function to generate image preprocessing pipeline used in PyTorch.
     By default (`is_train=False`), a pipeline for inference is generated,
     which resizes images to a square shape and converts them to a tensor.
     A pipeline for training is generated when `is_train=True`,
@@ -123,10 +124,10 @@ class Dataset(torch.utils.data.Dataset):
         if isinstance(dataset, str):
             if os.path.isfile(dataset):
                 # load a single image, or images from a tab-separated file
-                if os.path.splitext(dataset)[1].lower() in ['.jpg', '.jpeg', '.png']:
+                if filetype.is_image(dataset):
                     # load a single image file
                     x = [dataset]
-                    y = [None]
+                    y = []
                 else:
                     # load a tab-separated file
                     if dataset.endswith('.gz') or dataset.endswith('.gzip'):
@@ -148,7 +149,7 @@ class Dataset(torch.utils.data.Dataset):
                 # load images from a directory without labels
                 for root, dirs, files in os.walk(dataset):
                     for f in files:
-                        if os.path.splitext(f)[1].lower() in ['.jpg', '.jpeg', '.png']:
+                        if filetype.is_image(os.path.join(root, f)):
                             x.append(os.path.join(root, f))
                             y.append(None)
         elif isinstance(dataset, list) or isinstance(dataset, tuple):
@@ -243,6 +244,7 @@ class CLSCORE():
         model (str|torch.nn.Module): A string to specify a model or a torch.nn.Module instance.
         weights (str): A file path to model weights.
         temp_dirpath (str): A temporary directory path to save intermediate checkpoints and training logs.
+            If not given, the intermediate results are not saved.
 
     Attributes:
         device (str): A device to run the model. Default is 'cuda' if available, otherwise 'cpu'.
@@ -355,7 +357,7 @@ class CLSCORE():
 
 
 
-    def train(self, train, valid=None, test=None, epoch=20,  optimizer=None, criterion=None, resume=False):
+    def train(self, train, valid=None, test=None, epoch=20, optimizer=None, criterion=None, resume=False):
         """Train the model with the provided dataloaders
 
         Train the model with the provided dataloaders. The training statistics are saved in the temporary directory.
@@ -601,7 +603,7 @@ class CLSCORE():
             >>> model = CLSCORE(dataclass, 'efficientnet_b7', 'plant_organs.pth')
             >>>
             >>> transform = DataTransform(600)
-            >>> dataset = Dataset(dataclass, 'test.txt', transform)
+            >>> dataset = Dataset(dataclass, 'sample.jpg', transform)
             >>> dataloader = DataLoader(dataset, batch_size=32, num_workers=4)
             >>> 
             >>> probs = model.inference(dataloader)
@@ -612,7 +614,9 @@ class CLSCORE():
 
         probs = []
         for inputs in dataloader:
-            inputs = inputs[0].to(self.device)
+            if not isinstance(inputs, torch.Tensor):
+                inputs = inputs[0]
+            inputs = inputs.to(self.device)
             with torch.set_grad_enabled(False):
                 outputs = self.model(inputs)
             probs.append(torch.nn.functional.softmax(outputs, dim=1).detach().cpu().numpy())
@@ -655,7 +659,7 @@ class CLSCORE():
 
 
 
-def plot_trainlog(train_log, output=None, width=600, height=800, scale=1.0):
+def plot_trainlog(train_log, output=None, title='Training Statistics', width=600, height=800, scale=1.0):
     """Plot training log
 
     Plot loss and accuracy at each epoch from the training log which
@@ -698,23 +702,23 @@ def plot_trainlog(train_log, output=None, width=600, height=800, scale=1.0):
         d = train_log[(train_log['phase'] == phase) & (train_log['metric'] == 'loss')]
         fig.add_trace(
             go.Scatter(x=d['epoch'], y=d['value'],
-                       mode='lines+markers',
+                       mode='lines+markers' if len(d) < 10 else 'lines',
                        name=f'{phase}',
                        line=dict(color=cols[c])),
-            row=1, col=1
-        )
+            row=1, col=1)
+        
         d = train_log[(train_log['phase'] == phase) & (train_log['metric'] == 'acc')]
         fig.add_trace(
             go.Scatter(x=d['epoch'], y=d['value'],
-                       mode='lines+markers',
+                       mode='lines+markers' if len(d) < 10 else 'lines',
                        name=f'{phase}',
                        line=dict(color=cols[c]),
                        showlegend=False),
-            row=2, col=1
-        )
+            row=2, col=1)
+        
         c = (c + 1) % len(cols)
 
-    fig.update_layout(title_text='Training Statistics', template='ggplot2')
+    fig.update_layout(title_text=title, template='ggplot2')
     fig.update_xaxes(title_text='epoch')
     fig.update_yaxes(title_text='loss', row=1, col=1)
     fig.update_yaxes(title_text='acc', range=[-0.05, 1.05], row=2, col=1)
@@ -792,33 +796,13 @@ def plot_cm(test_outputs, output=None, width=600, height=600, scale=1.0):
 
 
 
-def generate_source(project, task='classification', module='cvtk'):
-    """Generate source code for training and inference of a classification model using PyTorch
-
-    This function generates a Python script for training and inference of a classification model using PyTorch.
-    Two types of scripts can be generated based on the `module` argument:
-    one with importation of cvtk and the other without importation of cvtk.
-    The script with importation of cvtk keeps the code simple and easy to understand,
-    since most complex functions are implemented in cvtk.
-    It designed for users who are beginning to learn object classification with PyTorch.
-    On the other hand, the script without cvtk import is longer and more exmplex,
-    but it can be more flexibly customized and further developed, 
-    since all functions is implemented directly in torch and torchvision.
-
-    Args:
-        project (str): A file path to save the script.
-        task (str): The task type of project. Only 'classification' is supported in the current version.
-        module (str): Script with importation of cvtk ('cvtk') or not ('torch').
-    """
-    if task.lower() not in ['cls', 'classification']:
-        raise ValueError('cvtk.torch.generate_source only can generate source codes for classification.')
-
+def __generate_source(project, module='cvtk'):
     if not project.endswith('.py'):
-        project = project + '.py'
+        project += '.py'
 
     # import component
     cvtk_modules = [
-        {'cvtk.ml': ['DataClass']},
+        {'cvtk.ml.data': ['DataClass']},
         {'cvtk.ml.torch': ['DataTransform', 'Dataset', 'DataLoader', 'CLSCORE']}
     ]
 
@@ -836,6 +820,7 @@ def generate_source(project, task='classification', module='cvtk'):
     # template
     tmpl = f'''import os
 import argparse
+import filetype
 import PIL.Image
 import PIL.ImageFile
 import PIL.ImageOps
@@ -847,16 +832,14 @@ import torchvision
 import torchvision.transforms.v2
 {function_imports}
 
-def train(dataclass, train, valid, test, input_weights, output_weights, batch_size=4, num_workers=8):
+def train(dataclass, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=10):
     temp_dpath = os.path.splitext(output_weights)[0]
 
     # class labels
     dataclass = DataClass(dataclass)
     
     # model setup
-    if input_weights is None:
-        input_weights = 'ResNet18_Weights.DEFAULT'
-    model = CLSCORE(dataclass, 'resnet18', input_weights, temp_dpath)
+    model = CLSCORE(dataclass, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
     
     # datasets
     train = DataLoader(
@@ -871,7 +854,7 @@ def train(dataclass, train, valid, test, input_weights, output_weights, batch_si
                     Dataset(dataclass, test, transform=DataTransform(224, is_train=False)),
                     batch_size=batch_size, num_workers=num_workers)
 
-    model.train(train, valid, test, epoch=10)
+    model.train(train, valid, test, epoch=epoch)
     model.save(output_weights)
 
 
@@ -894,7 +877,7 @@ def inference(dataclass, data, model_weights, output, batch_size=4, num_workers=
 
 
 def _train(args):
-    train(args.dataclass, args.train, args.valid, args.test, args.input_weights, args.output_weights)
+    train(args.dataclass, args.train, args.valid, args.test, args.output_weights)
 
 
 def _inference(args):
@@ -910,7 +893,6 @@ if __name__ == '__main__':
     parser_train.add_argument('--train', type=str, required=True)
     parser_train.add_argument('--valid', type=str, required=False)
     parser_train.add_argument('--test', type=str, required=False)
-    parser_train.add_argument('--input_weights', type=str, required=False)
     parser_train.add_argument('--output_weights', type=str, required=True)
     parser_train.set_defaults(func=_train)
 
@@ -939,15 +921,26 @@ python __projectname__ train \\
     
 python __projectname__ inference \\
     --dataclass ./data/fruits/class.txt \\
-    --data ./data/fruits/test.txt \\
+    --data ./data/fruits/images \\
     --model_weights ./output/fruits.pth \\
-    --output ./output/fruits.inference_results.txt
+    --output ./output/fruits_results
 """
     '''
 
-    tmpl = tmpl.replace('__projectname__', project)
+    tmpl = tmpl.replace('__projectname__', os.path.basename(project))
+    tmpl = __del_docstring(tmpl)
    
     with open(project, 'w') as fh:
         fh.write(tmpl)
 
 
+def __del_docstring(func_srouce):
+    func_source_ = ''
+    is_docstring = False
+    for line in func_srouce.split('\n'):
+        if line.strip().startswith('"""') or line.strip().startswith("'''"):
+            is_docstring = not is_docstring
+        else:
+            if not is_docstring:
+                func_source_ += line + '\n'
+    return func_source_

@@ -33,62 +33,42 @@ class TestScriptsCLS(unittest.TestCase):
         super().__init__(*args, **kwargs)
         self.dpath = os.path.join('outputs', 'test_scripts_cls')
         make_dirs(self.dpath)
+    
+
+    def __run_proc(self, module):
+        pfx = os.path.join(self.dpath, f'{module}script')
+
+        output = subprocess.run(['cvtk', 'create',
+                                 '--project', f'{pfx}.py',
+                                 '--task', 'cls',
+                                 '--module', module])
+        if output.returncode != 0:
+            raise Exception('Error: {}'.format(output.returncode))
+
+        output = subprocess.run(['python', f'{pfx}.py', 'train',
+                                 '--dataclass', './data/fruits/class.txt',
+                                 '--train', './data/fruits/train.txt',
+                                 '--valid', './data/fruits/valid.txt',
+                                 '--test', './data/fruits/test.txt',
+                                 '--output_weights', f'{pfx}_fruits.pth'])
+        if output.returncode != 0:
+            raise Exception('Error: {}'.format(output.returncode))
+        
+        output = subprocess.run(['python', f'{pfx}.py', 'inference',
+                                 '--dataclass', './data/fruits/class.txt',
+                                 '--data', './data/fruits/images',
+                                 '--model_weights', f'{pfx}_fruits.pth',
+                                 '--output', f'{pfx}_pred_results.txt'])
+        if output.returncode != 0:
+            raise Exception('Error: {}'.format(output.returncode))
         
 
     def test_cls_cvtk(self):
-        pfx = os.path.join(self.dpath, 'cvtkscript')
-
-        output = subprocess.run(['cvtk', 'create',
-                                 '--project', f'{pfx}.py',
-                                 '--type', 'cls',
-                                 '--module', 'cvtk'])
-        if output.returncode != 0:
-            raise Exception('Error: {}'.format(output.returncode))
-
-        output = subprocess.run(['python', f'{pfx}.py', 'train',
-                                 '--dataclass', './data/fruits/class.txt',
-                                 '--train', './data/fruits/train.txt',
-                                 '--valid', './data/fruits/valid.txt',
-                                 '--test', './data/fruits/test.txt',
-                                 '--output_weights', f'{pfx}.pth'])
-        if output.returncode != 0:
-            raise Exception('Error: {}'.format(output.returncode))
-        
-        output = subprocess.run(['python', f'{pfx}.py', 'inference',
-                                 '--dataclass', './data/fruits/class.txt',
-                                 '--data', './data/fruits/test.txt',
-                                 '--model_weights', f'{pfx}.pth',
-                                 '--output', f'{pfx}.infrence_results.txt'])
-        if output.returncode != 0:
-            raise Exception('Error: {}'.format(output.returncode))
+        self.__run_proc('cvtk')
     
     
     def test_cls_torch(self):
-        pfx = os.path.join(self.dpath, 'torchscript')
-
-        output = subprocess.run(['cvtk', 'create',
-                                 '--project', f'{pfx}.py',
-                                 '--type', 'cls',
-                                 '--module', 'torch'])
-        if output.returncode != 0:
-            raise Exception('Error: {}'.format(output.returncode))
-
-        output = subprocess.run(['python', f'{pfx}.py', 'train',
-                                 '--dataclass', './data/fruits/class.txt',
-                                 '--train', './data/fruits/train.txt',
-                                 '--valid', './data/fruits/valid.txt',
-                                 '--test', './data/fruits/test.txt',
-                                 '--output_weights', f'{pfx}.pth'])
-        if output.returncode != 0:
-            raise Exception('Error: {}'.format(output.returncode))
-        
-        output = subprocess.run(['python', f'{pfx}.py', 'inference',
-                                 '--dataclass', './data/fruits/class.txt',
-                                 '--data', './data/fruits/test.txt',
-                                 '--model_weights', f'{pfx}.pth',
-                                 '--output', f'{pfx}.infrence_results.txt'])
-        if output.returncode != 0:
-            raise Exception('Error: {}'.format(output.returncode))
+        self.__run_proc('torch')
 
 
 
@@ -113,7 +93,7 @@ class TestScriptsCLSPipeline(unittest.TestCase):
         
         output = subprocess.run(['cvtk', 'create',
                                  '--project', f'{pfx}.py',
-                                 '--type', 'cls',
+                                 '--task', 'cls',
                                  '--module', 'cvtk'])
         if output.returncode != 0:
             raise Exception('Error: {}'.format(output.returncode))
@@ -123,15 +103,15 @@ class TestScriptsCLSPipeline(unittest.TestCase):
                                  '--train', f'{pfx}.txt.0',
                                  '--valid', f'{pfx}.txt.1',
                                  '--test', f'{pfx}.txt.2',
-                                 '--output_weights', f'{pfx}.pth'])
+                                 '--output_weights', f'{pfx}_fruits.pth'])
         if output.returncode != 0:
             raise Exception('Error: {}'.format(output.returncode))
         
         output = subprocess.run(['python',f'{pfx}.py', 'inference',
                                  '--dataclass', './data/fruits/class.txt',
-                                 '--data', f'{pfx}.txt.2',
-                                 '--model_weights', f'{pfx}.pth',
-                                 '--output', f'{pfx}.inference_results.txt'])
+                                 '--data', './data/fruits/images',
+                                 '--model_weights', f'{pfx}_fruits.pth',
+                                 '--output', f'{pfx}_pred_results.txt'])
         if output.returncode != 0:
             raise Exception('Error: {}'.format(output.returncode))
         

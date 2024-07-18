@@ -1,0 +1,3 @@
+flower
+green_fruit
+red_fruit

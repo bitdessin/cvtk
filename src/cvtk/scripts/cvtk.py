@@ -1,15 +1,13 @@
-import os
-import sys
 import argparse
-import cvtk.ml.base
-import cvtk.ml.torch
+import cvtk.ml.utils
+
 
 
 def split_dataset(args):
     ratios = [float(r) for r in args.ratios.split(':')]
     ratios = [r / sum(ratios) for r in ratios]
     if args.type.lower() in ['text', 'txt', 'csv', 'tsv']:
-        subsets = cvtk.ml.base.split_dataset(data=args.input,
+        subsets = cvtk.ml.utils.split_dataset(data=args.input,
                                              ratios=ratios,
                                              balanced=args.balanced,
                                              shuffle=args.shuffle,
@@ -22,12 +20,8 @@ def split_dataset(args):
         raise NotImplementedError('The dataset type {} is not supported.'.format(args.type))
     
 
-
 def create(args):
-    cvtk.ml.torch.generate_source(args.project,
-                                  task=args.type,
-                                  module=args.module)
-
+    cvtk.ml.utils.generate_source(args.project, task=args.task, module=args.module)
 
 
 def main():
@@ -36,7 +30,7 @@ def main():
 
     parser_train = subparsers.add_parser('create')
     parser_train.add_argument('--project', type=str, required=True)
-    parser_train.add_argument('--type', type=str, default='cls')
+    parser_train.add_argument('--task', type=str, default='cls')
     parser_train.add_argument('--module', type=str, default='cvtk')
     parser_train.set_defaults(func=create)
 
