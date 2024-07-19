@@ -10,6 +10,7 @@ import PIL.ImageFile
 import PIL.ImageOps
 import PIL.ImageFilter
 from .data import DataClass
+from ._base import __generate_cvtk_imports_string, __del_docstring
 try:
     import torch
     import torchvision
@@ -659,7 +660,7 @@ class CLSCORE():
 
 
 
-def plot_trainlog(train_log, output=None, title='Training Statistics', width=600, height=800, scale=1.0):
+def plot_trainlog(train_log, output=None, title='Training Statistics', mode='lines', width=600, height=800, scale=1.0):
     """Plot training log
 
     Plot loss and accuracy at each epoch from the training log which
@@ -701,19 +702,12 @@ def plot_trainlog(train_log, output=None, title='Training Statistics', width=600
     for phase in train_log['phase'].unique():
         d = train_log[(train_log['phase'] == phase) & (train_log['metric'] == 'loss')]
         fig.add_trace(
-            go.Scatter(x=d['epoch'], y=d['value'],
-                       mode='lines+markers' if len(d) < 10 else 'lines',
-                       name=f'{phase}',
-                       line=dict(color=cols[c])),
+            go.Scatter(x=d['epoch'], y=d['value'], mode=mode, name=phase, line=dict(color=cols[c])),
             row=1, col=1)
         
         d = train_log[(train_log['phase'] == phase) & (train_log['metric'] == 'acc')]
         fig.add_trace(
-            go.Scatter(x=d['epoch'], y=d['value'],
-                       mode='lines+markers' if len(d) < 10 else 'lines',
-                       name=f'{phase}',
-                       line=dict(color=cols[c]),
-                       showlegend=False),
+            go.Scatter(x=d['epoch'], y=d['value'], mode=mode, name=phase, line=dict(color=cols[c]), showlegend=False),
             row=2, col=1)
         
         c = (c + 1) % len(cols)
@@ -730,7 +724,7 @@ def plot_trainlog(train_log, output=None, title='Training Statistics', width=600
     return fig
 
 
-def plot_cm(test_outputs, output=None, width=600, height=600, scale=1.0):
+def plot_cm(test_outputs, output=None, title='Confusion Matrix', xlab='Predicted Label', ylab='True Label', colorscale='YlOrRd', width=600, height=600, scale=1.0):
     """Plot a confusion matrix from test outputs
 
     Plot a confusion matrix from test outputs.
@@ -772,13 +766,9 @@ def plot_cm(test_outputs, output=None, width=600, height=600, scale=1.0):
     cm = sklearn.metrics.confusion_matrix(y_true, y_pred, labels=test_outputs.columns[2:])
 
     fig = go.Figure(data=go.Heatmap(x=class_labels, y=class_labels, z=cm,
-                                    colorscale='YlOrRd', hoverongaps=False))
-    fig.update_layout(
-            title='Confusion Matrix',
-            xaxis_title='Predicted label',
-            yaxis_title='True label',
-            xaxis=dict(side='bottom'),
-            yaxis=dict(side='left'))
+                                    colorscale=colorscale, hoverongaps=False))
+    fig.update_layout(title=title, xaxis_title=xlab, yaxis_title=ylab,
+                      xaxis=dict(side='bottom'), yaxis=dict(side='left'))
     fig.update_layout(template='ggplot2')
 
 
@@ -796,26 +786,16 @@ def plot_cm(test_outputs, output=None, width=600, height=600, scale=1.0):
 
 
 
-def __generate_source(project, module='cvtk'):
-    if not project.endswith('.py'):
-        project += '.py'
+def __generate_source(script_fpath, module='cvtk'):
+    if not script_fpath.endswith('.py'):
+        script_fpath += '.py'
 
-    # import component
     cvtk_modules = [
-        {'cvtk.ml.data': ['DataClass']},
-        {'cvtk.ml.torch': ['DataTransform', 'Dataset', 'DataLoader', 'CLSCORE']}
+        {'cvtk.ml.data': [DataClass]},
+        {'cvtk.ml.torch': [DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm]}
     ]
+    function_imports = __generate_cvtk_imports_string(cvtk_modules, import_from=module)
 
-    function_imports = ''
-    for cvtk_module in cvtk_modules:
-        for m_, fs_ in cvtk_module.items():
-            if module.lower() == 'cvtk':
-                function_imports += 'from {} import {}\n'.format(m_, ', '.join(fs_))
-            elif module.lower() == 'torch':
-                for f_ in fs_:
-                    function_imports += '\n\n\n' + inspect.getsource(eval(f_))
-            else:
-                raise ValueError(f'cvtk.torch.generate_source creates source code based on cvtk or torch, but {module} was given.')
 
     # template
     tmpl = f'''import os
@@ -856,6 +836,12 @@ def train(dataclass, train, valid, test, output_weights, batch_size=4, num_worke
 
     model.train(train, valid, test, epoch=epoch)
     model.save(output_weights)
+
+    # plot training log
+    plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.txt',
+                  os.path.splitext(output_weights)[0] + '.train_stats.png')
+    plot_cm(os.path.splitext(output_weights)[0] + '.test_outputs.txt',
+            os.path.splitext(output_weights)[0] + '.test_outputs.png')
 
 
 def inference(dataclass, data, model_weights, output, batch_size=4, num_workers=8):
@@ -906,12 +892,15 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.func(args)
 
+    '''
 
+    tmpl = __del_docstring(tmpl)
+    tmpl += '''
 """
 Example Usage:
 
 
-python __projectname__ train \\
+python __scriptname__ train \\
     --dataclass ./data/fruits/class.txt \\
     --train ./data/fruits/train.txt \\
     --valid ./data/fruits/valid.txt \\
@@ -919,28 +908,15 @@ python __projectname__ train \\
     --output_weights ./output/fruits.pth
 
     
-python __projectname__ inference \\
+python __scriptname__ inference \\
     --dataclass ./data/fruits/class.txt \\
     --data ./data/fruits/images \\
     --model_weights ./output/fruits.pth \\
     --output ./output/fruits_results
 """
-    '''
 
-    tmpl = tmpl.replace('__projectname__', os.path.basename(project))
-    tmpl = __del_docstring(tmpl)
+'''
+    tmpl = tmpl.replace('__scriptname__', os.path.basename(script_fpath))
    
-    with open(project, 'w') as fh:
+    with open(script_fpath, 'w') as fh:
         fh.write(tmpl)
-
-
-def __del_docstring(func_srouce):
-    func_source_ = ''
-    is_docstring = False
-    for line in func_srouce.split('\n'):
-        if line.strip().startswith('"""') or line.strip().startswith("'''"):
-            is_docstring = not is_docstring
-        else:
-            if not is_docstring:
-                func_source_ += line + '\n'
-    return func_source_

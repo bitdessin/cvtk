@@ -17,16 +17,17 @@ class TestMMDet(unittest.TestCase):
         make_dirs(self.dpath)
     
 
-    def __run_proc(self, module):
-        pfx = os.path.join(self.dpath, f'{module}script')
+    def __run_proc(self, task, module):
+        pfx = os.path.join(self.dpath, f'{module}{task}script')
+        djson = 'bbox.json' if task == 'det' else 'segm.json'
 
-        cvtk.ml.utils.generate_source(f'{pfx}.py', task='det', module=module)
+        cvtk.ml.utils.generate_source(f'{pfx}.py', task=task, module=module)
 
         output = subprocess.run(['python', f'{pfx}.py', 'train',
                                  '--dataclass', './data/strawberry/class.txt',
-                                 '--train', './data/strawberry/train/annotations.json',
-                                 '--valid', './data/strawberry/valid/annotations.json',
-                                 '--test', './data/strawberry/test/annotations.json',
+                                 '--train', f'./data/strawberry/train/{djson}',
+                                 '--valid', f'./data/strawberry/valid/{djson}',
+                                 '--test', f'./data/strawberry/test/{djson}',
                                  '--output_weights', f'{pfx}_sb.pth'])
         if output.returncode != 0:
             raise Exception('Error: {}'.format(output.returncode))
@@ -39,22 +40,24 @@ class TestMMDet(unittest.TestCase):
         if output.returncode != 0:
             raise Exception('Error: {}'.format(output.returncode))
         
-        fig = cvtk.ml.mmdet.plot_trainlog(f'{pfx}_sb.train_stats.train.txt',
-                                          output=f'{pfx}_sb.train_stats.train.png')
-        fig.show()
-
-        fig = cvtk.ml.mmdet.plot_trainlog(f'{pfx}_sb.train_stats.valid.txt',
-                                          output=f'{pfx}_sb.train_stats.valid.png')
-        fig.show()
-
 
 
     def test_det_cvtk(self):
-        self.__run_proc('cvtk')
+        self.__run_proc('det', 'cvtk')
         
 
     def test_det_mmdet(self):
-        self.__run_proc('mmdet')
+        self.__run_proc('det', 'mmdet')
+
+
+    def test_segm_cvtk(self):
+        self.__run_proc('segm', 'cvtk')
+        
+
+    def test_segm_mmdet(self):
+        self.__run_proc('segm', 'mmdet')
+
+
 
 
 

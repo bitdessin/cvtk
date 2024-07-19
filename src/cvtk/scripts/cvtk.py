@@ -21,7 +21,7 @@ def split_dataset(args):
     
 
 def create(args):
-    cvtk.ml.utils.generate_source(args.project, task=args.task, module=args.module)
+    cvtk.ml.utils.generate_source(args.script, task=args.task, module=args.module)
 
 
 def main():
@@ -29,7 +29,7 @@ def main():
     subparsers = parser.add_subparsers()
 
     parser_train = subparsers.add_parser('create')
-    parser_train.add_argument('--project', type=str, required=True)
+    parser_train.add_argument('--script', type=str, required=True)
     parser_train.add_argument('--task', type=str, default='cls')
     parser_train.add_argument('--module', type=str, default='cvtk')
     parser_train.set_defaults(func=create)

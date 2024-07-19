@@ -40,14 +40,6 @@ class TestTorch(unittest.TestCase):
         if output.returncode != 0:
             raise Exception('Error: {}'.format(output.returncode))
 
-        fig = cvtk.ml.torch.plot_trainlog(f'{pfx}_fruits.train_stats.txt',
-                                          output=f'{pfx}_fruits.train_stats.png')
-        fig.show()
-
-        fig = cvtk.ml.torch.plot_cm(f'{pfx}_fruits.test_outputs.txt',
-                                    output=f'{pfx}_fruits.test_outputs.png')
-        fig.show()
-
 
     def test_cls_cvtk(self):
         self.__run_proc('cvtk')

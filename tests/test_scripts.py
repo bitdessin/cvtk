@@ -39,7 +39,7 @@ class TestScriptsCLS(unittest.TestCase):
         pfx = os.path.join(self.dpath, f'{module}script')
 
         output = subprocess.run(['cvtk', 'create',
-                                 '--project', f'{pfx}.py',
+                                 '--script', f'{pfx}.py',
                                  '--task', 'cls',
                                  '--module', module])
         if output.returncode != 0:
@@ -92,7 +92,7 @@ class TestScriptsCLSPipeline(unittest.TestCase):
             raise Exception('Error: {}'.format(output.returncode))
         
         output = subprocess.run(['cvtk', 'create',
-                                 '--project', f'{pfx}.py',
+                                 '--script', f'{pfx}.py',
                                  '--task', 'cls',
                                  '--module', 'cvtk'])
         if output.returncode != 0:
@@ -116,6 +116,90 @@ class TestScriptsCLSPipeline(unittest.TestCase):
             raise Exception('Error: {}'.format(output.returncode))
         
 
+class TestScriptsDET(unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dpath = os.path.join('outputs', 'test_scripts_det')
+        make_dirs(self.dpath)
+    
+
+    def __run_proc(self, module):
+        pfx = os.path.join(self.dpath, f'{module}script')
+
+        output = subprocess.run(['cvtk', 'create',
+                                 '--script', f'{pfx}.py',
+                                 '--task', 'det',
+                                 '--module', module])
+        if output.returncode != 0:
+            raise Exception('Error: {}'.format(output.returncode))
+
+        output = subprocess.run(['python', f'{pfx}.py', 'train',
+                                 '--dataclass', './data/strawberry/class.txt',
+                                 '--train', './data/strawberry/train/bbox.json',
+                                 '--valid', './data/strawberry/valid/bbox.json',
+                                 '--test', './data/strawberry/test/bbox.json',
+                                 '--output_weights', f'{pfx}_sb.pth'])
+        if output.returncode != 0:
+            raise Exception('Error: {}'.format(output.returncode))
+        
+        output = subprocess.run(['python', f'{pfx}.py', 'inference',
+                                 '--dataclass', './data/strawberry/class.txt',
+                                 '--data', './data/strawberry/test/images',
+                                 '--model_weights', f'{pfx}_sb.pth',
+                                 '--output', f'{pfx}_pred_results.txt'])
+        if output.returncode != 0:
+            raise Exception('Error: {}'.format(output.returncode))
+        
+
+    def test_det_cvtk(self):
+        self.__run_proc('cvtk')
+    
+    
+    def test_det_mmdet(self):
+        self.__run_proc('torch')
+
+
+class TestScriptsSEGM(unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dpath = os.path.join('outputs', 'test_scripts_det')
+        make_dirs(self.dpath)
+    
+
+    def __run_proc(self, module):
+        pfx = os.path.join(self.dpath, f'{module}script')
+
+        output = subprocess.run(['cvtk', 'create',
+                                 '--script', f'{pfx}.py',
+                                 '--task', 'segm',
+                                 '--module', module])
+        if output.returncode != 0:
+            raise Exception('Error: {}'.format(output.returncode))
+
+        output = subprocess.run(['python', f'{pfx}.py', 'train',
+                                 '--dataclass', './data/strawberry/class.txt',
+                                 '--train', './data/strawberry/train/segm.json',
+                                 '--valid', './data/strawberry/valid/segm.json',
+                                 '--test', './data/strawberry/test/segm.json',
+                                 '--output_weights', f'{pfx}_sb.pth'])
+        if output.returncode != 0:
+            raise Exception('Error: {}'.format(output.returncode))
+        
+        output = subprocess.run(['python', f'{pfx}.py', 'inference',
+                                 '--dataclass', './data/strawberry/class.txt',
+                                 '--data', './data/strawberry/test/images',
+                                 '--model_weights', f'{pfx}_sb.pth',
+                                 '--output', f'{pfx}_pred_results.txt'])
+        if output.returncode != 0:
+            raise Exception('Error: {}'.format(output.returncode))
+        
+
+    def test_segm_cvtk(self):
+        self.__run_proc('cvtk')
+    
+    
+    def test_segm_mmdet(self):
+        self.__run_proc('torch')
 
 
 if __name__ == '__main__':

@@ -5,14 +5,14 @@ import filetype
 import logging
 import gzip
 import tempfile
-import inspect
-import numpy as np
+import random
 import pandas as pd
 import PIL
 import PIL.Image
 import PIL.ImageOps
 import PIL.ImageDraw
 from .data import DataClass
+from ._base import __generate_cvtk_imports_string, __del_docstring
 try:
     import skimage
     import skimage.measure
@@ -32,7 +32,7 @@ try:
     
 except ImportError as e:
     raise ImportError('Unable to import mmdet related packages. '
-                      'Install torch package to enable this feature.') from e
+                      'Install mmcv, mmdet, and the related packages to enable this feature.') from e
 
 logger = logging.getLogger(__name__)
 
@@ -571,14 +571,14 @@ class MMDETCORE():
                 }
                 if pred_mask is not None:
                     sg = skimage.measure.find_contours(pred_mask, 0.5)
-                    region['contour'] = sg[0][:, [1, 0]]
+                    region['contour'] = sg[0][:, [1, 0]].tolist()
                 regions.append(region)
         
         return {'image': input, 'annotations': regions}
 
 
 
-def plot_trainlog(train_log, y=None, output=None, title='Training Statistics', width=600, height=800, scale=1.9):
+def plot_trainlog(train_log, y=None, output=None, title='Training Statistics', mode='lines', width=600, height=800, scale=1.9):
     """Plot train log.
 
     Plot train log. `train_log` format should be:
@@ -631,7 +631,7 @@ def plot_trainlog(train_log, y=None, output=None, title='Training Statistics', w
     for y_ in y:
         fig.add_trace(
             go.Scatter(x=train_log[x], y=train_log[y_],
-                       mode='lines+markers' if len(train_log) < 10 else 'lines',
+                       mode=mode,
                        name=y_,
                        line=dict(color='#333333'),
                        showlegend=False),
@@ -647,29 +647,72 @@ def plot_trainlog(train_log, y=None, output=None, title='Training Statistics', w
         fig.show()
     return fig
 
-def generate_source(project, type=None, module=None):
-    raise NotImplementedError('This function is not implemented yet.')
 
 
-def __generate_source(project, module='cvtk'):
-    if not project.endswith('.py'):
-        project += '.py'
+def draw_outlines(image_fpath, output_fpath, outlines, col=None):
+    """Draw bbox and contour
 
-    cvtk_modules = [
-        {'cvtk.ml.data': ['DataClass']},
-        {'cvtk.ml.mmdet': ['DataPipeline', 'Dataset', 'DataLoader', 'MMDETCORE']},
-    ]
+    Args:
+        image_fpath (str): The path to the image.
+        output_fpath (str): The path to the output image.
+        outlines (list): The list of outlines. Each element should be a dictionary with the following keys
+            - bbox: The bounding box coordinates. (required)
+            - class: The class label. (optional)
+            - contour: The contour coordinates. (optional)
+        col (dict): The color dictionary. Default is None.
+    """
+
+    font = PIL.ImageFont.load_default(10)
+
+    im = PIL.Image.open(image_fpath)
+    im = PIL.ImageOps.exif_transpose(im)
+    imdr = PIL.ImageDraw.Draw(im)
+
+    if col is None:
+        col = {}
     
-    function_imports = ''
-    for cvtk_module in cvtk_modules:
-        for m_, fs_ in cvtk_module.items():
-            if module.lower() == 'cvtk':
-                function_imports += 'from {} import {}\n'.format(m_, ', '.join(fs_))
-            elif module.lower() == 'mmdet':
-                for f_ in fs_:
-                    function_imports += '\n\n\n' + inspect.getsource(eval(f_))
-            else:
-                raise ValueError(f'cvtk.torch.generate_source creates source code based on cvtk or mmdet, but "{module}" was given.')
+    for outline in outlines:
+        if 'class' in outline:
+            if outline['class'] not in col:
+                col[outline['class']] = (random.randint(0, 255),
+                                         random.randint(0, 255),
+                                         random.randint(0, 255))
+        else:
+            col['___UNDEF___'] = (random.randint(0, 255),
+                                  random.randint(0, 255),
+                                  random.randint(0, 255))
+        
+        x1, y1, x2, y2 = outline['bbox']
+        cl = outline['class'] if 'class' in outline else '___UNDEF___'
+        
+        imdr.rectangle([(x1, y1), (x2, y2)], outline = col[cl], width=5)
+        if 'contour' in outline:
+            xy = [tuple(c) for c in outline['contour']]
+            imdr.line(xy, fill = col[cl], width=5)
+        if 'class' in outline:
+            imdr.text((x1, y1), cl, font=font)
+    im.save(output_fpath)
+
+
+
+def __generate_source(script_fpath, task, module='cvtk'):
+    if not script_fpath.endswith('.py'):
+        script_fpath += '.py'
+    
+    cvtk_modules = [
+        {'cvtk.ml.data': [DataClass]},
+        {'cvtk.ml.mmdet': [DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines]}
+    ]
+    function_imports = __generate_cvtk_imports_string(cvtk_modules, import_from=module)
+
+    task_code = 'with_bbox=True'
+    sample_data = 'bbox.json'
+    task_arch = 'faster-rcnn_r101_fpn_1x_coco'
+    if task.lower()[:3] == 'seg':
+        task_code += ', with_mask=True'
+        sample_data = 'segm.json'
+        task_arch = 'mask-rcnn_r101_fpn_1x_coco'
+
 
     tmpl = f'''import os
 import argparse
@@ -679,6 +722,7 @@ import filetype
 import logging
 import gzip
 import tempfile
+import random
 import inspect
 import numpy as np
 import pandas as pd
@@ -702,53 +746,46 @@ import mmdet.datasets
 import mmengine.config
 import mmengine.registry
 import mmengine.runner
+import logging
+logger = logging.getLogger(__name__)
+
 {function_imports}
 
-def train(dataclass, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=20):
+
+def train(dataclass, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=10):
     temp_dpath = os.path.splitext(output_weights)[0]
 
     # class labels
     dataclass = DataClass(dataclass)
 
     # model setup
-    model = MMDETCORE(dataclass, 'faster-rcnn_r101_fpn_1x_coco', None, workspace=temp_dpath)
+    model = MMDETCORE(dataclass, '{task_arch}', None, workspace=temp_dpath)
 
     # datasets
     train = DataLoader(
-                Dataset(dataclass, train, DataPipeline(is_train=True)),
+                Dataset(dataclass, train, DataPipeline(is_train=True, {task_code})),
                 phase='train', batch_size=batch_size, num_workers=num_workers)
     valid = DataLoader(
-                Dataset(dataclass, valid, DataPipeline(is_train=False)),
+                Dataset(dataclass, valid, DataPipeline(is_train=False, {task_code})),
                 phase='valid', batch_size=batch_size, num_workers=num_workers)
     test = DataLoader(
-                Dataset(dataclass, test, DataPipeline(is_train=False)),
+                Dataset(dataclass, test, DataPipeline(is_train=False, {task_code})),
                 phase='test', batch_size=batch_size, num_workers=num_workers)
     
     model.train(train, valid, test, epoch=epoch)
     model.save(output_weights)
 
+    # plot train log
+    plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.train.txt',
+                  output=os.path.splitext(output_weights)[0] + '.train_stats.train.png')
+    plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.valid.txt',
+                  output=os.path.splitext(output_weights)[0] + '.train_stats.valid.png')
 
-def draw_bboxes(image_fpath, anns, output_fpath):
-    classcols = {{}}
-    font = PIL.ImageFont.load_default(10)
 
-    im = PIL.Image.open(image_fpath)
-    im = PIL.ImageOps.exif_transpose(im)
-    imdr = PIL.ImageDraw.Draw(im)
-    for ann in anns:
-        if ann['class'] not in classcols:
-            classcols[ann['class']] = (np.random.randint(0, 255), np.random.randint(0, 255), np.random.randint(0, 255))
-        x1, y1, x2, y2 = ann['bbox']
-        imdr.rectangle([(x1, y1), (x2, y2)], outline = classcols[ann['class']], width=5)
-        
-        imdr.text((x1, y1), ann['class'], font=font)
-    im.save(output_fpath)
-
-    
 def inference(dataclass, data, model_weights, output, batch_size=4, num_workers=8):
     temp_dpath = os.path.splitext(output)[0]
 
-     # class labels
+    # class labels
     dataclass = DataClass(dataclass)
 
     # model setup
@@ -763,12 +800,13 @@ def inference(dataclass, data, model_weights, output, batch_size=4, num_workers=
 
     with open(output, 'w') as fh:
         json.dump({{'data': pred_outputs}}, fh, ensure_ascii=False, indent=4)
-    for pred_output in pred_outputs:
-        draw_bboxes(pred_output['image'],
-                    pred_output['annotations'],
-                    os.path.join(temp_dpath, os.path.basename(pred_output['image'])))
-
     
+    for pred_output in pred_outputs:
+        draw_outlines(pred_output['image'],
+                      os.path.join(temp_dpath, os.path.basename(pred_output['image'])),
+                      pred_output['annotations'])
+
+
 def _train(args):
     train(args.dataclass, args.train, args.valid, args.test, args.output_weights)
 
@@ -798,43 +836,34 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     args.func(args)
-
-
+    
+'''
+    
+    tmpl = __del_docstring(tmpl)
+    tmpl += f'''
 """
 Example Usage:
 
 
-python __projectname__ train \\
+python __scriptname__ train \\
     --dataclass ./data/strawberry/class.txt \\
-    --train ./data/strawberry/train/annotations.json \\
-    --valid ./data/strawberry/valid/annotations.json \\
-    --test ./data/strawberry/test/annotations.json \\
+    --train ./data/strawberry/train/{sample_data}.json \\
+    --valid ./data/strawberry/valid/{sample_data}.json \\
+    --test ./data/strawberry/test/{sample_data}.json \\
     --output_weights ./output/strawberry.pth
 
     
-python __projectname__ inference \\
+python __scriptname__ inference \\
     --dataclass ./data/strawberry/class.txt \\
     --data ./data/strawberry/test/images \\
     --model_weights ./output/arts.pth \\
     --output ./output/pred_results
+
 """
 '''
 
-    tmpl = tmpl.replace('__projectname__', os.path.basename(project))
-    tmpl = __del_docstring(tmpl)
+    tmpl = tmpl.replace('__scriptname__', os.path.basename(script_fpath))
    
-    with open(project, 'w') as fh:
+    with open(script_fpath, 'w') as fh:
         fh.write(tmpl)
 
-
-
-def __del_docstring(func_srouce):
-    func_source_ = ''
-    is_docstring = False
-    for line in func_srouce.split('\n'):
-        if line.strip().startswith('"""') or line.strip().startswith("'''"):
-            is_docstring = not is_docstring
-        else:
-            if not is_docstring:
-                func_source_ += line + '\n'
-    return func_source_

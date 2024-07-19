@@ -115,7 +115,7 @@ def generate_source(project, task='classification', module='cvtk'):
     """
     if task.lower() in ['cls', 'classification']:
         generate_source_cls(project, module)
-    elif task.lower() in ['det', 'detection', 'mmdet', 'mmdetection']:
-        generate_source_det(project, module)
+    elif task.lower() in ['det', 'detection', 'seg', 'segm', 'segmentation', 'mmdet', 'mmdetection']:
+        generate_source_det(project, task, module)
     else:
-        raise ValueError('The current version only support classification and detection tasks.')
+        raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`seg`) tasks.')
