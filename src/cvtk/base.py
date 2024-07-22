@@ -10,33 +10,162 @@ import PIL
 import PIL.Image
 import PIL.ImageOps
 import numpy as np
-
-
 ImageSourceTypes = typing.Union[str, pathlib.Path, bytes, PIL.Image.Image, np.ndarray]
 
 
-def imread(source: ImageSourceTypes, format: str='PIL', exif_transpose=True, req_timeout=60) -> ImageSourceTypes:
-    """Open and convert image format
+class JsonComplexEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.nan):
+            return None
+        else:
+            return super(JsonComplexEncoder, self).default(obj)
 
-    This function supports opening image from file, url, bytes, base64, PIL image, or numpy array.
+
+
+class ImageAnnotation():
+    def __init__(self, labels, bboxes=None, polygons=None, scores=None):
+        if isinstance(labels, str):
+            labels = [labels]
+        
+        if bboxes is not None:
+            if len(bboxes) != len(labels):
+                raise ValueError('The number of labels and bounding boxes should be the same.')
+        else:
+            bboxes = [None] * len(labels)
+        if polygons is not None:
+            if len(polygons) != len(labels):
+                raise ValueError('The number of labels and polygons should be the same.')
+        else:
+            polygons = [None] * len(labels)
+        if scores is not None:
+            if len(scores) != len(labels):
+                raise ValueError('The number of labels and scores should be the same.')
+        else:
+            scores = [None] * len(labels)
+
+        self.__i = 0
+        self.__labels = labels
+        self.__bboxes = bboxes
+        self.__polygons = polygons
+        self.__scores = scores
+
+
+    def __len__(self):
+        return len(self.__labels)
+
+
+    def __getitem__(self, i):
+        return {'label': self.__labels[i],
+                'bbox': self.__bboxes[i],
+                'polygon': self.__polygons[i],
+                'score': self.__scores[i]}
+
+
+    def __iter__(self):
+        return self
+
+
+    def __next__(self):
+        if self.__i < len(self):
+            i = self.__i
+            self.__i += 1
+            return self[i]
+        else:
+            self.__i = 0
+            raise StopIteration()
+
+
+    def dump(self, indent=None, ensure_ascii=True):
+        ann_dict = [self[i] for i in range(len(self))]
+        return json.dumps(ann_dict, cls=JsonComplexEncoder, indent=indent, ensure_ascii=ensure_ascii)
+    
+    
+    @property
+    def labels(self):
+        return self.__labels
+
+
+    @property
+    def bboxes(self):
+        return self.__bboxes
+
+
+    @property
+    def polygons(self):
+        return self.__polygons
+    
+
+    @property
+    def scores(self):
+        return self.__scores
+    
+
+    def label(self, i):
+        return self.__labels[i]
+    
+    def bbox(self, i):
+        return self.__bboxes[i]
+    
+    def polygon(self, i):
+        return self.__polygons[i]
+    
+    def score(self, i):
+        return self.__scores[i]
+    
+
+
+
+class Image():
+    def __init__(self, source: ImageSourceTypes, annotations: ImageAnnotation=None):
+        self.source = source
+        self.im = imread(source, exif_transpose=True)
+        self.annotations = annotations
+    
+    @property
+    def size(self):
+        return self.im.size
+    
+    @property
+    def width(self):
+        return self.im.width
+    
+    @property
+    def height(self):
+        return self.im.height
+
+
+
+
+
+def imread(source: ImageSourceTypes,
+           exif_transpose: bool=True,
+           req_timeout: int=60) -> PIL.Image.Image:
+    """Open image from various sources
+
+    This function opens image from various sources,
+    including file, url, bytes, base64, PIL image, and numpy array
+    and convert it to the PIL.Image.Image class instance.
+    The format of input image is automatically estimated in the function.
     Image will be transposed based on the EXIF orientation tag if `exif_transpose` is set to True.
-    By default, the image is returned as PIL.Image.Image object
-    and can be converted to other formats by setting `format` argument.
     Note that, if 'cv2' format is selected, the image will be in BGR format, compatible with OpenCV.
     
     Args:
         source: str | pathlib.Path | bytes | PIL.Image.Image | np.ndarray: Image source,
             can be a file path, url, bytes, base64, PIL image, or numpy array.
-        format: str: The format of the returned image. Default is 'PIL'.
-            Options are 'cv2', 'bytes', 'base64', 'PIL'.
         exif_transpose: bool: Whether to transpose the image based on the EXIF orientation tag.
         req_timeout: int: The timeout for the request to get image from url. Default is 60 seconds.
     
     Returns:
-        ImageSourceTypes: Image data in the specified format.
+        PIL.Image.Image: Image data.
         
     Examples:
-        >>> imread('image.jpg')
+        >>> im = imread('image.jpg')
     """
     im = None
 
@@ -75,8 +204,8 @@ def imread(source: ImageSourceTypes, format: str='PIL', exif_transpose=True, req
             im = PIL.ImageOps.exif_transpose(im)
         
     elif isinstance(source, np.ndarray):
-        im[..., :3] = im[..., 2::-1]
-        im = source
+        im = source.copy()
+        im = PIL.Image.fromarray(im[..., 2::-1])
     
     else:
         raise ValueError(f'Unable open image file due to unknown type of "{source}".')
@@ -84,12 +213,13 @@ def imread(source: ImageSourceTypes, format: str='PIL', exif_transpose=True, req
     if im is None:
         raise ValueError(f'Unable open image file f{source}. Check if the file exists or the url is correct.')
 
-    return __imconvert(im, format)
+    return im
     
 
 
 
-def imconvert(im: ImageSourceTypes, format: str='PIL') -> ImageSourceTypes:
+def imconvert(im: ImageSourceTypes,
+              format: str='PIL') -> ImageSourceTypes:
     """Convert image format
 
     Convert image format from any format to the specific format.
@@ -98,6 +228,7 @@ def imconvert(im: ImageSourceTypes, format: str='PIL') -> ImageSourceTypes:
         im: ImageSourceTypes: Image data in numpy array format.
         format: str: The format of the returned image. Default is 'PIL'.
             Options are 'cv2', 'bytes', 'base64', 'PIL'.
+        b_format: str: The image extension to save the image in bytes format. Default is '.jpg'.
     
     Returns:
         ImageSourceTypes: Image data in the specified format.
@@ -106,46 +237,36 @@ def imconvert(im: ImageSourceTypes, format: str='PIL') -> ImageSourceTypes:
         >>> im = imread('image.jpg')
         >>> imconvert(im, 'cv2')
     """
-    return imread(im, format)
+    def __pil2bytes(im) -> bytes:
+        im_buff = io.BytesIO()
+        im.save(im_buff, format='JPEG')
+        return im_buff.getvalue()
 
+    im = imread(im)
 
-
-def __imconvert(im, format):
     if format.lower() in ['array', 'cv2', 'cv']:
-        return __pil2cv(im)
+        return np.array(im)[..., 2::-1]
     elif format.lower() == 'pil':
         return im
     elif format.lower() == 'bytes':
         return __pil2bytes(im)
     elif format.lower() == 'base64':
-        return base64.b64encode(__pil2bytes(im)).decode('utf-8')
+        return 'data:image/jpeg;base64, ' + \
+            base64.b64encode(__pil2bytes(im)).decode('utf-8') 
     elif format.lower() in ['gray', 'grey']:
-        return __pil2gray(im)
+        return im.convert('L')
     else:
         raise ValueError(f'Unsupported image format "{format}".')
 
 
 
 
-def __pil2cv(im: PIL.Image.Image) -> np.ndarray:
-    return np.array(im)[..., 2::-1]
-
-
-
-
-def __pil2bytes(im: PIL.Image.Image, format='jpg') -> bytes:
-    im_buff = io.BytesIO()
-    im.save(im_buff, format=format)
-    return im_buff.getvalue()
-    
-
-
-def __pil2gray(im: PIL.Image.Image) -> PIL.Image.Image:
-    return im.convert('L')
-
-
-
-def imresize(im: ImageSourceTypes, shape=None, scale=None, shortest=None, longest=None, resample=PIL.Image.BILINEAR) -> PIL.Image.Image:
+def imresize(im: ImageSourceTypes,
+             shape: list[int, int]|tuple[int, int]=None,
+             scale: float=None,
+             shortest: int=None,
+             longest: int=None,
+             resample: object=PIL.Image.BILINEAR) -> PIL.Image.Image:
     """Resize the image
 
     Resize the image to the given shape, scale, shortest, or longest side.
@@ -159,24 +280,25 @@ def imresize(im: ImageSourceTypes, shape=None, scale=None, shortest=None, longes
         resample: int: The resampling filter. Default is PIL.Image.BILINEAR.
     
     """
-    im = imread(im, format='PIL')
+    im = imread(im)
     
     if shape is not None:
-        return im.resize(shape, resample=resample)
+        im = im.resize(shape, resample=resample)
     elif scale is not None:
-        return im.resize((int(im.width * scale), int(im.height * scale)), resample=resample)
+        im = im.resize((int(im.width * scale), int(im.height * scale)), resample=resample)
     elif shortest is not None:
         ratio = shortest / min(im.size)
-        return im.resize((int(im.width * ratio), int(im.height * ratio)), resample=resample)
+        im = im.resize((int(im.width * ratio), int(im.height * ratio)), resample=resample)
     elif longest is not None:
         ratio = longest / max(im.size)
-        return im.resize((int(im.width * ratio), int(im.height * ratio)), resample=resample)
+        im = im.resize((int(im.width * ratio), int(im.height * ratio)), resample=resample)
     else:
         raise ValueError('Specify the shape, scale, shortest, or longest side to resize the image.')
+    return im
     
 
 
-def imwrite(im: ImageSourceTypes, output: str, quality: int=95):
+def imwrite(im: ImageSourceTypes, output: str, quality: int=95) -> None:
     """Save image to file
 
     Args:
@@ -186,12 +308,12 @@ def imwrite(im: ImageSourceTypes, output: str, quality: int=95):
         >>> imsave(imread('image.jpg'), 'image.jpg')
         >>> imsave(imread('image.jpg'), 'image.jpg', 100)
     """
-    im = imread(im, format='PIL')
+    im = imread(im)
     im.save(output, quality=quality)
 
 
 
-def imshow(im: ImageSourceTypes | list[ImageSourceTypes], ncol: int|None=None, nrow: int|None=None):
+def imshow(im: ImageSourceTypes|list[ImageSourceTypes], ncol: int|None=None, nrow: int|None=None):
     """Display image using matplotlib.pyplot
 
     Args:
@@ -204,7 +326,7 @@ def imshow(im: ImageSourceTypes | list[ImageSourceTypes], ncol: int|None=None, n
         import matplotlib.pyplot as plt
     except ImportError as e:
         raise ImportError('Unable to display image. '
-                          'Install matplotlib package to enable this feature.') from e
+                          'Install matplotlib package to enable image visualization feature.') from e
 
     if not isinstance(im, (list, tuple)):
         im = [im]
@@ -220,18 +342,22 @@ def imshow(im: ImageSourceTypes | list[ImageSourceTypes], ncol: int|None=None, n
     elif nrow is None:
         nrow = math.ceil(len(im) / ncol)
     
+    plt.figure()
+
     for i_, im_ in enumerate(im):
         plt.subplot(nrow, ncol, i_ + 1)
-        plt.imshow(imread(im_, format='PIL'))
+        plt.imshow(imread(im_))
         if isinstance(im_, str):
             plt.title(os.path.basename(im_))
 
     plt.show()
+    return plt
 
 
 
-
-def imlist(source: str | list[str], ext: list[str]=['.jpg', '.jpeg', '.png', '.tiff']) -> list[str]:
+def imlist(source: str|list[str],
+           ext: str|list[str]=['.jpg', '.jpeg', '.png', '.tiff'],
+           ignore_case: bool=True) -> list[str]:
     """List all image files from the given sources
 
     The function recevies image sources as a file path, directory path, or a list of file and directory paths.
@@ -240,42 +366,36 @@ def imlist(source: str | list[str], ext: list[str]=['.jpg', '.jpeg', '.png', '.t
     Args:
         source: str | list[str]: The directory path.
         ext: list[str]: The list of file extensions to search for. Default is ['.jpg', '.png', '.tiff'].
+        ignore_case: bool: Whether to ignore the case of the file extension. Default is True.
 
     Returns:
         list: List of image files in the directory.
     """
     im_list = []
-    sources = [source] if isinstance(source, str) else source
+    if isinstance(source, str):
+        sources = [source]
+    if ignore_case:
+        ext = [e.lower() for e in ext]
 
     for source in sources:
-        if isinstance(source, list):
-            im_list.append(imlist(source, ext))
+        if os.path.isdir(source):
+            for f in glob.glob(os.path.join(source, '**', '*'), recursive=True):
+                f_ext = os.path.splitext(f)[1]
+                if ignore_case:
+                    f_ext = f_ext.lower()
+                if f_ext in ext:
+                    im_list.append(f)
+        elif os.path.isfile(source):
+            im_list.append(source)
         else:
-            if os.path.isdir(source):
-                for f in glob.glob(os.path.join(source, '**', '*'), recursive=True):
-                    if os.path.splitext(f)[1].lower() in ext:
-                        im_list.append(f)
-            elif os.path.isfile(source):
-                im_list.append(source)
-            else:
-                raise ValueError(f'The given "{source}" is neither a file nor a directory.')
+            raise ValueError(f'The given "{source}" is neither a file nor a directory.')
                 
     return im_list
 
 
 
 
-class __JsonEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, np.nan):
-            return None
-        else:
-            return super(__JsonEncoder, self).default(obj)
+
+
 
 
