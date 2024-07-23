@@ -29,7 +29,17 @@ class JsonComplexEncoder(json.JSONEncoder):
 
 
 class ImageAnnotation():
-    def __init__(self, labels, bboxes=None, polygons=None, scores=None):
+    """Image Annotation Class
+
+    Args:
+        labels: str | list[str]: The label or list of labels.
+        bboxes: list[tuple]|None: The list of bounding boxes in the format of (x, y, w, h).
+        masks: list[np.ndarray]|None: NumPy array of maks.
+        scores: list[float]|None: The list of scores.
+    """
+            
+    def __init__(self, labels, bboxes=None, masks=None, scores=None):
+
         if isinstance(labels, str):
             labels = [labels]
         
@@ -38,11 +48,11 @@ class ImageAnnotation():
                 raise ValueError('The number of labels and bounding boxes should be the same.')
         else:
             bboxes = [None] * len(labels)
-        if polygons is not None:
-            if len(polygons) != len(labels):
+        if masks is not None:
+            if len(masks) != len(labels):
                 raise ValueError('The number of labels and polygons should be the same.')
         else:
-            polygons = [None] * len(labels)
+            masks = [None] * len(labels)
         if scores is not None:
             if len(scores) != len(labels):
                 raise ValueError('The number of labels and scores should be the same.')
@@ -52,8 +62,9 @@ class ImageAnnotation():
         self.__i = 0
         self.__labels = labels
         self.__bboxes = bboxes
-        self.__polygons = polygons
+        self.__masks = masks
         self.__scores = scores
+        self.__areas = self.__calc_areas()
 
 
     def __len__(self):
@@ -63,8 +74,9 @@ class ImageAnnotation():
     def __getitem__(self, i):
         return {'label': self.__labels[i],
                 'bbox': self.__bboxes[i],
-                'polygon': self.__polygons[i],
-                'score': self.__scores[i]}
+                'mask': self.__masks[i],
+                'score': self.__scores[i],
+                'area': self.__areas[i]}
 
 
     def __iter__(self):
@@ -79,6 +91,18 @@ class ImageAnnotation():
         else:
             self.__i = 0
             raise StopIteration()
+
+
+    def __calc_areas(self):
+        areas = []
+        for bbox, mask in zip(self.__bboxes, self.__masks):
+            if mask is not None:
+                areas.append(np.sum(mask))
+            elif bbox is not None:
+                areas.append((bbox[3] - bbox[1]) * (bbox[2] - bbox[0]))
+            else:
+                areas.append(None)
+        return areas
 
 
     def dump(self, indent=None, ensure_ascii=True):
@@ -97,24 +121,27 @@ class ImageAnnotation():
 
 
     @property
-    def polygons(self):
-        return self.__polygons
+    def masks(self):
+        return self.__masks
     
 
     @property
     def scores(self):
         return self.__scores
-    
+
 
     def label(self, i):
         return self.__labels[i]
     
+    
     def bbox(self, i):
         return self.__bboxes[i]
     
-    def polygon(self, i):
-        return self.__polygons[i]
+
+    def mask(self, i):
+        return self.__masks[i]
     
+
     def score(self, i):
         return self.__scores[i]
     
@@ -122,9 +149,9 @@ class ImageAnnotation():
 
 
 class Image():
-    def __init__(self, source: ImageSourceTypes, annotations: ImageAnnotation=None):
-        self.source = source
-        self.im = imread(source, exif_transpose=True)
+    def __init__(self, source, annotations: ImageAnnotation=None):
+        self.file_path = source
+        self.im = PIL.ImageOps.exif_transpose(PIL.Image.open(source))
         self.annotations = annotations
     
     @property

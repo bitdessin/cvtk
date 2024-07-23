@@ -7,6 +7,7 @@ Tutorials
     
     tutorials/cls
     tutorials/det
+    tutorials/segm
    
 
 

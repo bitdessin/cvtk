@@ -18,25 +18,27 @@ class TestMMDet(unittest.TestCase):
     
 
     def __run_proc(self, task, module):
-        pfx = os.path.join(self.dpath, f'{module}{task}script')
+        dpath = os.path.join(self.dpath, f'{module}_{task}')
+        make_dirs(dpath)
         djson = 'bbox.json' if task == 'det' else 'segm.json'
+        script = os.path.join(dpath, 'script.py')
 
-        cvtk.ml.utils.generate_source(f'{pfx}.py', task=task, module=module)
+        cvtk.ml.utils.generate_source(script, task=task, module=module)
 
-        output = subprocess.run(['python', f'{pfx}.py', 'train',
+        output = subprocess.run(['python', script, 'train',
                                  '--dataclass', './data/strawberry/class.txt',
                                  '--train', f'./data/strawberry/train/{djson}',
                                  '--valid', f'./data/strawberry/valid/{djson}',
                                  '--test', f'./data/strawberry/test/{djson}',
-                                 '--output_weights', f'{pfx}_sb.pth'])
+                                 '--output_weights', os.path.join(dpath, 'sb.pth')])
         if output.returncode != 0:
             raise Exception('Error: {}'.format(output.returncode))
 
-        output = subprocess.run(['python', f'{pfx}.py', 'inference',
+        output = subprocess.run(['python', script, 'inference',
                                  '--dataclass', './data/strawberry/class.txt',
                                  '--data', './data/strawberry/test/images',
-                                 '--model_weights', f'{pfx}_sb.pth',
-                                 '--output', f'{pfx}_pred_results.txt'])
+                                 '--model_weights', os.path.join(dpath, 'sb.pth'),
+                                 '--output', os.path.join(dpath, 'pred_outputs')])
         if output.returncode != 0:
             raise Exception('Error: {}'.format(output.returncode))
         

@@ -1,13 +1,13 @@
-cvtk.ml
-#######
+cvtk.ml.data
+############
 
 
-.. automodule:: cvtk.ml
+.. automodule:: cvtk.ml.data
     :noindex:
-    :imported-members:
     :members:
     :no-undoc-members:
     :member-order: bysource
+
 
 
 

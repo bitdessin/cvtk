@@ -5,34 +5,40 @@ import filetype
 import logging
 import gzip
 import tempfile
+import pickle
 import random
 import pandas as pd
+import numpy as np
+import importlib
+import plotly.express as px
+import plotly.subplots
+import plotly.graph_objects as go
 import PIL
 import PIL.Image
 import PIL.ImageOps
 import PIL.ImageDraw
-from .data import DataClass
-from ._base import __generate_cvtk_imports_string, __del_docstring
-try:
-    import skimage
-    import skimage.measure
-    import pycocotools.coco
-    import torch
-    import mim
-    import mmcv
-    import mmdet
-    import mmcv.ops
-    import mmdet.utils
-    import mmdet.apis
-    import mmdet.models
-    import mmdet.datasets
-    import mmengine.config
-    import mmengine.registry
-    import mmengine.runner
-    
-except ImportError as e:
-    raise ImportError('Unable to import mmdet related packages. '
-                      'Install mmcv, mmdet, and the related packages to enable this feature.') from e
+import PIL.ImageFont
+import skimage.measure
+import pycocotools.coco
+import pycocotools.mask
+import torch
+import mim
+import mmcv
+import mmdet
+import mmcv.ops
+import mmdet.utils
+import mmdet.apis
+import mmdet.models
+import mmdet.datasets
+import mmengine.config
+import mmengine.registry
+import mmengine.runner
+import mmdet.evaluation
+from cvtk.base import imread, Image, ImageAnnotation, JsonComplexEncoder
+from cvtk.coco import calc_stats
+from cvtk.ml.data import DataClass
+from ._base import __del_docstring, __get_imports, __insert_imports, __extend_cvtk_imports
+
 
 logger = logging.getLogger(__name__)
 
@@ -316,6 +322,8 @@ class MMDETCORE():
         self.tempd = self.__init_tempdir(workspace)
         self.mmdet_log_dpath = None
 
+        self.test_stats = None
+
     
     def __del__(self):
         try:
@@ -436,15 +444,101 @@ class MMDETCORE():
         self.cfg.train_cfg.max_epochs = epoch
         if valid is not None:
             self.cfg.merge_from_dict(valid)
-        if test is not None:
-            self.cfg.merge_from_dict(test)
         self.cfg.default_hooks.checkpoint.interval = 10
 
         # training
         runner = mmengine.runner.Runner.from_cfg(self.cfg)
         self.mmdet_log_dpath = os.path.join(self.cfg.work_dir, runner.timestamp)
         runner.train()
+        del runner
+        self.save(os.path.join(self.cfg.work_dir, 'last_checkpoint.pth'))
 
+        # test
+        if test is not None:
+            self.cfg.merge_from_dict(test)
+            self.cfg.load_from = os.path.join(self.cfg.work_dir, 'last_checkpoint.pth')
+            self.test_stats = self.test(test)
+
+
+    def test(self, test):
+        """Run test
+        
+        Run test. The test will be performed in the last process of the training process.
+        However, use this method can run test independently from train.
+
+        Args:
+            test (DataLoader): The path to the test dataset. Default is None.
+        
+        """
+        self.cfg.merge_from_dict(test)
+        runner = mmengine.runner.Runner.from_cfg(self.cfg)
+
+        test_outputs = os.path.join(self.cfg.work_dir, 'test_outputs.pkl')
+        runner.test_evaluator.metrics.append(mmdet.evaluation.DumpDetResults(out_file_path=test_outputs))
+        runner.test()
+
+        with open(test_outputs, 'rb') as infh:
+            pred_outputs = pickle.load(infh)
+
+        cocodict = {'images': [], 'annotations': [], 'categories': []}
+        for cate in self.dataclass.classes:
+            cocodict['categories'].append({
+                'id': self.dataclass[cate],
+                'name': cate
+            })
+
+        annid = 0
+        for po in pred_outputs:
+            cocodict['images'].append({
+                'id': po['img_id'],
+                'file_name': po['img_path'] if 'img_path' in po else None,
+                'width': po['ori_shape'][1] if 'ori_shape' in po else None,
+                'height': po['ori_shape'][0] if 'ori_shape' in po else None
+            })
+
+            if 'pred_instances' in po:
+                imanns = self.__format_mmdet_output(po['img_path'], po['pred_instances'])
+                for j, imann in enumerate(imanns.annotations):
+                    annid += 1
+                    cocodict['annotations'].append({
+                        'id': annid,
+                        'image_id': cocodict['images'][-1]['id'],
+                        'category_id': self.dataclass[imann['label']],
+                        'score': imann['score'],
+                        'bbox': self.__xyxy2xywh(imann['bbox']),
+                        'area': imann['area'],
+                        'iscrowd': 0
+                    })
+                    if 'mask' in imann and imann['mask'] is not None:
+                        cocodict['annotations'][-1]['segmentation'] = {
+                            'size': po['pred_instances']['masks'][j]['size'],
+                            'counts': po['pred_instances']['masks'][j]['counts'].decode(),
+                        }
+
+        with open(os.path.splitext(test_outputs)[0] + '.coco.json', 'w') as oufh:
+            json.dump(cocodict, oufh, cls=JsonComplexEncoder, indent=4)
+
+        iou_type = 'bbox'
+        for pp in self.cfg.test_dataloader.dataset.pipeline:
+            if pp['type'] == 'LoadAnnotations':
+                if 'with_mask' in pp and pp['with_mask']:
+                    iou_type = 'segm'
+
+        self.test_stats = calc_stats(self.cfg.test_evaluator.ann_file,
+                                     os.path.splitext(test_outputs)[0] + '.coco.json',
+                                     iouType=iou_type)
+        return self.test_stats
+        
+        
+    
+    def __xyxy2xywh(self, bbox):
+        x1, y1, x2, y2 = bbox
+        x = x1
+        y = y1
+        w = x2 - x1
+        h = y2 - y1
+        return [x, y, w, h]
+    
 
     def save(self, output):
         """Save the model
@@ -468,6 +562,10 @@ class MMDETCORE():
         self.cfg.dump(cfg_fpath)
 
         self.__write_trainlog(os.path.splitext(output)[0] + '.train_stats')
+
+        if self.test_stats is not None:
+            with open(os.path.join(os.path.splitext(output)[0] + '.test_stats.json'), 'w') as outfh:
+                json.dump(self.test_stats, outfh, indent=4, ensure_ascii=False)
 
 
 
@@ -507,7 +605,14 @@ class MMDETCORE():
         self.cfg.merge_from_dict(dataloader)
         model = mmdet.apis.init_detector(self.cfg, self.cfg.load_from, device=self.device)
 
-        input_images = self.__load_images(self.cfg.test_dataloader.dataset.data_root)
+        # find images from given directory or cocojson
+        data_dpath = self.cfg.test_dataloader.dataset.data_root
+        if data_dpath == '':
+            if self.cfg.test_dataloader.dataset.type == 'RepeatDataset':
+                data_dpath = self.cfg.test_dataloader.dataset.dataset.ann_file
+            else:
+                data_dpath = self.cfg.test_dataloader.dataset.ann_file
+        input_images = self.__load_images(data_dpath)
         self.cfg.test_dataloader.dataset.data_root = ''
  
         pred_outputs = mmdet.apis.inference_detector(model, input_images)
@@ -515,9 +620,9 @@ class MMDETCORE():
         # format
         outputs_fmt = []
         for target_image, output in zip(input_images, pred_outputs):
-            outputs_fmt.append(self.__format_output(target_image, output, score_cutoff))
-        
+            outputs_fmt.append(self.__format_mmdet_output(target_image, output.pred_instances, score_cutoff))
         return outputs_fmt
+    
     
     def __load_images(self, dataset):
         x = []
@@ -530,10 +635,15 @@ class MMDETCORE():
                         trainfh = gzip.open(dataset, 'rt')
                     else:
                         trainfh = open(dataset, 'r')
-                    x = []
-                    for line in trainfh:
-                        words = line.rstrip().split('\t')
-                        x.append(words[0])
+                    if dataset.endswith('.json') or dataset.endswith('.json.gz') or dataset.endswith('.json.gzip'):
+                        cocofh = json.load(trainfh)
+                        for im in cocofh['images']:
+                            x.append(im['file_name'])
+                    else:
+                        x = []
+                        for line in trainfh:
+                            words = line.rstrip().split('\t')
+                            x.append(words[0])
                     trainfh.close()
             elif os.path.isdir(dataset):
                 for root, dirs, files in os.walk(dataset):
@@ -545,37 +655,94 @@ class MMDETCORE():
         return x
     
     
-    def __format_output(self, input, output, score_cutoff):
-        if 'bboxes' in output.pred_instances:
-            pred_bboxes = output.pred_instances.bboxes.detach().cpu().numpy().tolist()
-            pred_labels = output.pred_instances.labels.detach().cpu().numpy().tolist()
-            pred_scores = output.pred_instances.scores.detach().cpu().numpy().tolist()
+    def __format_mmdet_output(self, im_fpath, pred_instances, score_cutoff=0):
+        if 'bboxes' in pred_instances:
+            if isinstance(pred_instances, dict):
+                pred_bboxes = pred_instances['bboxes'].detach().cpu().numpy().tolist()
+                pred_labels = pred_instances['labels'].detach().cpu().numpy().tolist()
+                pred_scores = pred_instances['scores'].detach().cpu().numpy().tolist()
+            else:
+                pred_bboxes = pred_instances.bboxes.detach().cpu().numpy().tolist()
+                pred_labels = pred_instances.labels.detach().cpu().numpy().tolist()
+                pred_scores = pred_instances.scores.detach().cpu().numpy().tolist()
         else:
             pred_bboxes = []
             pred_labels = []
             pred_scores = []
         
-        if 'masks' in output.pred_instances:
-            pred_masks = output.pred_instances.masks.detach().cpu().numpy()
+        if 'masks' in pred_instances:
+            pred_masks = []
+            pred_masks_ = None
+            if isinstance(pred_instances, dict):
+                pred_masks_ = pred_instances['masks']
+            else:
+                pred_masks_ = pred_instances.masks.detach().cpu().numpy()
+            for pred_mask_ in pred_masks_:
+                if isinstance(pred_mask_, dict):
+                    if 'size' in pred_mask_ and 'counts' in pred_mask_:
+                        pred_masks.append(pycocotools.mask.decode(pred_mask_))
+                    else:
+                        raise ValueError('The mask is expected to have "size" and "counts" when dict is given.')
+                elif isinstance(pred_mask_, np.ndarray):
+                    pred_masks.append(pred_mask_.astype(np.uint8))
+                else:
+                    raise ValueError('The mask is expected to be a dictionary or numpy array.')
         else:
             pred_masks = [None] * len(pred_bboxes)
         
-        regions = []
-        for pred_bbox, pred_label, pred_score, pred_mask in zip(
-                pred_bboxes, pred_labels, pred_scores, pred_masks):
-            if pred_score > score_cutoff:
-                region = {
-                    'class': self.dataclass[pred_label],
-                    'score': pred_score,
-                    'bbox': pred_bbox
-                }
-                if pred_mask is not None:
-                    sg = skimage.measure.find_contours(pred_mask, 0.5)
-                    region['contour'] = sg[0][:, [1, 0]].tolist()
-                regions.append(region)
+        pred_labels = [self.dataclass[_] for _ in pred_labels]
+        imann = ImageAnnotation(pred_labels, pred_bboxes, pred_masks, pred_scores)
+        return Image(im_fpath, annotations=imann)
         
-        return {'image': input, 'annotations': regions}
 
+
+def coco(dataclass, images):
+    """Change inference output to COCO format
+    
+    Args:
+        dataclass (DataClass): The class.
+        outputs (list): The list of outputs.
+
+    """
+    coco = {'images': [], 'annotations': [], 'categories': []}
+
+    img_id = 0
+    ann_id = 0
+    cate_id = 0
+
+    for image in images:
+        img_id += 1
+        coco['images'].append({
+            'id': img_id,
+            'file_name': image.file_path,
+            'height': image.height,
+            'width': image.width
+        })
+        
+        for ann in image.annotations:
+            ann_id += 1
+            coco['annotations'].append({
+                'id': len(coco['annotations']),
+                'image_id': ann_id,
+                'category_id': dataclass[ann['label']],
+                'bbox': ann['bbox'],
+                'score': ann['score'],
+                'iscrowd': 0
+            })
+            if 'mask' in ann and ann['mask'] is not None:
+                m = pycocotools.mask.encode(np.asfortranarray(ann['mask']))
+                coco['annotations'][-1]['segmentation'] = {
+                    'size': m['size'],
+                    'counts': m['counts'].decode()
+                }
+
+    for cl in dataclass.classes:
+        cate_id += 1
+        coco['categories'].append({
+            'id': dataclass[cl],
+            'name': cl
+        })
+    return coco
 
 
 def plot_trainlog(train_log, y=None, output=None, title='Training Statistics', mode='lines', width=600, height=800, scale=1.9):
@@ -606,11 +773,6 @@ def plot_trainlog(train_log, y=None, output=None, title='Training Statistics', m
 
     
     """
-    import pandas as pd
-    import plotly.express as px
-    import plotly.subplots
-    import plotly.graph_objects as go
-
     # data preparation
     train_log = pd.read_csv(train_log, sep='\t', header=0, comment='#')
         
@@ -649,7 +811,7 @@ def plot_trainlog(train_log, y=None, output=None, title='Training Statistics', m
 
 
 
-def draw_outlines(image_fpath, output_fpath, outlines, col=None):
+def draw_outlines(image_fpath, output_fpath, outlines, cutoff=0.5, col=None):
     """Draw bbox and contour
 
     Args:
@@ -661,7 +823,6 @@ def draw_outlines(image_fpath, output_fpath, outlines, col=None):
             - contour: The contour coordinates. (optional)
         col (dict): The color dictionary. Default is None.
     """
-
     font = PIL.ImageFont.load_default(10)
 
     im = PIL.Image.open(image_fpath)
@@ -672,9 +833,11 @@ def draw_outlines(image_fpath, output_fpath, outlines, col=None):
         col = {}
     
     for outline in outlines:
-        if 'class' in outline:
-            if outline['class'] not in col:
-                col[outline['class']] = (random.randint(0, 255),
+        if outline['score'] < cutoff:
+            continue
+        if 'label' in outline:
+            if outline['label'] not in col:
+                col[outline['label']] = (random.randint(0, 255),
                                          random.randint(0, 255),
                                          random.randint(0, 255))
         else:
@@ -683,13 +846,13 @@ def draw_outlines(image_fpath, output_fpath, outlines, col=None):
                                   random.randint(0, 255))
         
         x1, y1, x2, y2 = outline['bbox']
-        cl = outline['class'] if 'class' in outline else '___UNDEF___'
+        cl = outline['label'] if 'label' in outline else '___UNDEF___'
         
         imdr.rectangle([(x1, y1), (x2, y2)], outline = col[cl], width=5)
-        if 'contour' in outline:
-            xy = [tuple(c) for c in outline['contour']]
-            imdr.line(xy, fill = col[cl], width=5)
-        if 'class' in outline:
+        if 'mask' in outline and outline['mask'] is not None:
+            for contour in skimage.measure.find_contours(outline['mask'], 0.5):
+                imdr.line([tuple([c[1], c[0]]) for c in contour.tolist()], fill = col[cl], width=5)
+        if 'label' in outline:
             imdr.text((x1, y1), cl, font=font)
     im.save(output_fpath)
 
@@ -698,172 +861,32 @@ def draw_outlines(image_fpath, output_fpath, outlines, col=None):
 def __generate_source(script_fpath, task, module='cvtk'):
     if not script_fpath.endswith('.py'):
         script_fpath += '.py'
-    
-    cvtk_modules = [
-        {'cvtk.ml.data': [DataClass]},
-        {'cvtk.ml.mmdet': [DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines]}
-    ]
-    function_imports = __generate_cvtk_imports_string(cvtk_modules, import_from=module)
 
-    task_code = 'with_bbox=True'
-    sample_data = 'bbox.json'
-    task_arch = 'faster-rcnn_r101_fpn_1x_coco'
-    if task.lower()[:3] == 'seg':
-        task_code += ', with_mask=True'
-        sample_data = 'segm.json'
-        task_arch = 'mask-rcnn_r101_fpn_1x_coco'
+    tmpl = ''
+    with open(importlib.resources.files('cvtk').joinpath('tmpl/mmdet_det.py'), 'r') as infh:
+        tmpl = infh.readlines()
 
+    if module.lower() != 'cvtk':
+        cvtk_modules = [
+            {'cvtk': [JsonComplexEncoder, ImageAnnotation, Image]},
+            {'cvtk.coco': [calc_stats]},
+            {'cvtk.ml.data': [DataClass]},
+            {'cvtk.ml.mmdet': [DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines, coco]}
+        ]
+        tmpl = __insert_imports(tmpl, __get_imports(__file__))
+        tmpl = __extend_cvtk_imports(tmpl, cvtk_modules)
 
-    tmpl = f'''import os
-import argparse
-import shutil
-import json
-import filetype
-import logging
-import gzip
-import tempfile
-import random
-import inspect
-import numpy as np
-import pandas as pd
-import PIL
-import PIL.Image
-import PIL.ImageOps
-import PIL.ImageDraw
-import PIL.ImageFont
-import skimage
-import skimage.measure
-import pycocotools.coco
-import torch
-import mim
-import mmcv
-import mmdet
-import mmcv.ops
-import mmdet.utils
-import mmdet.apis
-import mmdet.models
-import mmdet.datasets
-import mmengine.config
-import mmengine.registry
-import mmengine.runner
-import logging
-logger = logging.getLogger(__name__)
-
-{function_imports}
-
-
-def train(dataclass, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=10):
-    temp_dpath = os.path.splitext(output_weights)[0]
-
-    # class labels
-    dataclass = DataClass(dataclass)
-
-    # model setup
-    model = MMDETCORE(dataclass, '{task_arch}', None, workspace=temp_dpath)
-
-    # datasets
-    train = DataLoader(
-                Dataset(dataclass, train, DataPipeline(is_train=True, {task_code})),
-                phase='train', batch_size=batch_size, num_workers=num_workers)
-    valid = DataLoader(
-                Dataset(dataclass, valid, DataPipeline(is_train=False, {task_code})),
-                phase='valid', batch_size=batch_size, num_workers=num_workers)
-    test = DataLoader(
-                Dataset(dataclass, test, DataPipeline(is_train=False, {task_code})),
-                phase='test', batch_size=batch_size, num_workers=num_workers)
-    
-    model.train(train, valid, test, epoch=epoch)
-    model.save(output_weights)
-
-    # plot train log
-    plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.train.txt',
-                  output=os.path.splitext(output_weights)[0] + '.train_stats.train.png')
-    plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.valid.txt',
-                  output=os.path.splitext(output_weights)[0] + '.train_stats.valid.png')
-
-
-def inference(dataclass, data, model_weights, output, batch_size=4, num_workers=8):
-    temp_dpath = os.path.splitext(output)[0]
-
-    # class labels
-    dataclass = DataClass(dataclass)
-
-    # model setup
-    model = MMDETCORE(dataclass, os.path.splitext(model_weights)[0] + '.py', model_weights, workspace=temp_dpath)
-
-    # datasets
-    data = DataLoader(
-                Dataset(dataclass, data, DataPipeline()),
-                phase='inference', batch_size=batch_size, num_workers=num_workers)
-    
-    pred_outputs = model.inference(data)
-
-    with open(output, 'w') as fh:
-        json.dump({{'data': pred_outputs}}, fh, ensure_ascii=False, indent=4)
-    
-    for pred_output in pred_outputs:
-        draw_outlines(pred_output['image'],
-                      os.path.join(temp_dpath, os.path.basename(pred_output['image'])),
-                      pred_output['annotations'])
-
-
-def _train(args):
-    train(args.dataclass, args.train, args.valid, args.test, args.output_weights)
-
-    
-def _inference(args):
-    inference(args.dataclass, args.data, args.model_weights, args.output)
-
-    
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers()
-
-    parser_train = subparsers.add_parser('train')
-    parser_train.add_argument('--dataclass', type=str, required=True)
-    parser_train.add_argument('--train', type=str, required=True)
-    parser_train.add_argument('--valid', type=str, required=False)
-    parser_train.add_argument('--test', type=str, required=False)
-    parser_train.add_argument('--output_weights', type=str, required=True)
-    parser_train.set_defaults(func=_train)
-
-    parser_inference = subparsers.add_parser('inference')
-    parser_inference.add_argument('--dataclass', type=str, required=True)
-    parser_inference.add_argument('--data', type=str, required=True)
-    parser_inference.add_argument('--model_weights', type=str, required=True)
-    parser_inference.add_argument('--output', type=str, required=False)
-    parser_inference.set_defaults(func=_inference)
-
-    args = parser.parse_args()
-    args.func(args)
-    
-'''
-    
+    tmpl = ''.join(tmpl)
+    tmpl = tmpl.replace('__SCRIPTNAME__', os.path.basename(script_fpath))
+    if task.lower()[:3] == 'det':
+        tmpl = tmpl.replace('__TASKARCH__', 'faster-rcnn_r101_fpn_1x_coco')
+        tmpl = tmpl.replace('__SAMPLEDATA__', 'bbox.json')
+    else:
+        tmpl = tmpl.replace('__TASKARCH__', 'mask-rcnn_r101_fpn_1x_coco')
+        tmpl = tmpl.replace('__SAMPLEDATA__', 'segm.json')
+        tmpl = tmpl.replace('with_mask=False', 'with_mask=True')
     tmpl = __del_docstring(tmpl)
-    tmpl += f'''
-"""
-Example Usage:
 
-
-python __scriptname__ train \\
-    --dataclass ./data/strawberry/class.txt \\
-    --train ./data/strawberry/train/{sample_data}.json \\
-    --valid ./data/strawberry/valid/{sample_data}.json \\
-    --test ./data/strawberry/test/{sample_data}.json \\
-    --output_weights ./output/strawberry.pth
-
-    
-python __scriptname__ inference \\
-    --dataclass ./data/strawberry/class.txt \\
-    --data ./data/strawberry/test/images \\
-    --model_weights ./output/arts.pth \\
-    --output ./output/pred_results
-
-"""
-'''
-
-    tmpl = tmpl.replace('__scriptname__', os.path.basename(script_fpath))
-   
     with open(script_fpath, 'w') as fh:
         fh.write(tmpl)
 

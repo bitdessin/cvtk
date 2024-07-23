@@ -70,31 +70,31 @@ class TestImageClasses(unittest.TestCase):
         self.bboxes = [[0, 0, 10, 10],
                        [10, 10, 20, 20],
                        [20, 20, 30, 30]]
-        self.polygons = [[0, 0, 10, 10, 10, 10, 0, 10],
+        self.masks = [[0, 0, 10, 10, 10, 10, 0, 10],
                          [10, 10, 20, 20, 20, 20, 10, 20],
                          [20, 20, 30, 30, 30, 30, 20, 30]]
         self.scores = [0.9, 0.8, 0.7]
     
 
     def test_imann(self):
-        ia = cvtk.ImageAnnotation(self.labels, self.bboxes, self.polygons, self.scores)
+        ia = cvtk.ImageAnnotation(self.labels, self.bboxes, self.masks, self.scores)
 
         self.assertEqual(len(ia), 3)
 
         self.assertEqual(ia.labels, self.labels)
         self.assertEqual(ia.bboxes, self.bboxes)
-        self.assertEqual(ia.polygons, self.polygons)
+        self.assertEqual(ia.masks, self.masks)
         self.assertEqual(ia.scores, self.scores)
 
         self.assertEqual(ia[0],
             {'label': self.labels[0],
              'bbox': self.bboxes[0],
-             'polygon': self.polygons[0],
+             'mask': self.masks[0],
              'score': self.scores[0]})
         
         self.assertEqual(ia.label(0), self.labels[0])
         self.assertEqual(ia.bbox(1), self.bboxes[1])
-        self.assertEqual(ia.polygon(2), self.polygons[2])
+        self.assertEqual(ia.mask(2), self.masks[2])
         self.assertEqual(ia.score(0), self.scores[0])
 
         print(ia.dump())
@@ -110,7 +110,7 @@ class TestImageClasses(unittest.TestCase):
 
 
     def test_im_imann(self):
-        ia = cvtk.ImageAnnotation(self.labels, self.bboxes, self.polygons, self.scores)
+        ia = cvtk.ImageAnnotation(self.labels, self.bboxes, self.masks, self.scores)
         im = cvtk.Image(self.im_fpath, ia)
         for i, ann in enumerate(im.annotations):
             self.assertEqual(ann, ia[i])

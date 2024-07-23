@@ -1,24 +1,23 @@
 import os
 import random
 import gzip
-import inspect
+import importlib
 import filetype
 import numpy as np
 import pandas as pd
+import sklearn.metrics
+import plotly.graph_objects as go
+import plotly.express as px
+import plotly.subplots
 import PIL.Image
 import PIL.ImageFile
 import PIL.ImageOps
 import PIL.ImageFilter
-from .data import DataClass
-from ._base import __generate_cvtk_imports_string, __del_docstring
-try:
-    import torch
-    import torchvision
-    import torchvision.transforms.v2
-except ImportError as e:
-    raise ImportError('Unable to import torch and torchvision. '
-                      'Install torch package to enable this feature.') from e
-
+import torch
+import torchvision
+import torchvision.transforms.v2
+from cvtk.ml.data import DataClass
+from ._base import __get_imports, __insert_imports, __extend_cvtk_imports, __del_docstring
 
 
 
@@ -683,11 +682,6 @@ def plot_trainlog(train_log, output=None, title='Training Statistics', mode='lin
         height (int): A height of the output image.
         scale (float): The scale of the output image, which is used to adjust the resolution.
     """
-    import pandas as pd
-    import plotly.express as px
-    import plotly.subplots
-    import plotly.graph_objects as go
-
     # data preparation
     train_log = pd.read_csv(train_log, sep='\t', header=0, comment='#')
     train_log = train_log.melt(id_vars='epoch', var_name='type', value_name='value')
@@ -752,9 +746,6 @@ def plot_cm(test_outputs, output=None, title='Confusion Matrix', xlab='Predicted
         height (int): A height of the output image.
         scale (float): The scale of the output image, which is used to adjust the resolution.
     """
-    import pandas as pd
-    import plotly.graph_objects as go
-    import sklearn.metrics
 
     # data preparation
     test_outputs = pd.read_csv(test_outputs, sep='\t', header=0, comment='#')
@@ -790,133 +781,21 @@ def __generate_source(script_fpath, module='cvtk'):
     if not script_fpath.endswith('.py'):
         script_fpath += '.py'
 
-    cvtk_modules = [
-        {'cvtk.ml.data': [DataClass]},
-        {'cvtk.ml.torch': [DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm]}
-    ]
-    function_imports = __generate_cvtk_imports_string(cvtk_modules, import_from=module)
+    tmpl = ''
+    with open(importlib.resources.files('cvtk').joinpath('tmpl/torch_cls.py'), 'r') as infh:
+        tmpl = infh.readlines()
 
-
-    # template
-    tmpl = f'''import os
-import argparse
-import filetype
-import PIL.Image
-import PIL.ImageFile
-import PIL.ImageOps
-import PIL.ImageFilter
-import numpy as np
-import pandas as pd
-import torch
-import torchvision
-import torchvision.transforms.v2
-{function_imports}
-
-def train(dataclass, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=10):
-    temp_dpath = os.path.splitext(output_weights)[0]
-
-    # class labels
-    dataclass = DataClass(dataclass)
+    if module.lower() != 'cvtk':
+        cvtk_modules = [
+            {'cvtk.ml.data': [DataClass]},
+            {'cvtk.ml.torch': [DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm]}
+        ]
+        tmpl = __insert_imports(tmpl, __get_imports(__file__))
+        tmpl = __extend_cvtk_imports(tmpl, cvtk_modules)
     
-    # model setup
-    model = CLSCORE(dataclass, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
-    
-    # datasets
-    train = DataLoader(
-                Dataset(dataclass, train, transform=DataTransform(224, is_train=True)),
-                batch_size=batch_size, num_workers=num_workers, shuffle=True)
-    if valid is not None:
-        valid = DataLoader(
-                    Dataset(dataclass, valid, transform=DataTransform(224, is_train=False)),
-                    batch_size=batch_size, num_workers=num_workers)
-    if test is not None:
-        test = DataLoader(
-                    Dataset(dataclass, test, transform=DataTransform(224, is_train=False)),
-                    batch_size=batch_size, num_workers=num_workers)
-
-    model.train(train, valid, test, epoch=epoch)
-    model.save(output_weights)
-
-    # plot training log
-    plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.txt',
-                  os.path.splitext(output_weights)[0] + '.train_stats.png')
-    plot_cm(os.path.splitext(output_weights)[0] + '.test_outputs.txt',
-            os.path.splitext(output_weights)[0] + '.test_outputs.png')
-
-
-def inference(dataclass, data, model_weights, output, batch_size=4, num_workers=8):
-    temp_dpath = os.path.splitext(output)[0]
-
-    # class label
-    dataclass = DataClass(dataclass)
-
-    # model setup
-    model = CLSCORE(dataclass, 'resnet18', model_weights, temp_dpath)
-
-    # dataset
-    data = DataLoader(
-                Dataset(dataclass, data, transform=DataTransform(224, is_train=False)),
-                batch_size=batch_size, num_workers=num_workers)
-    
-    probs = model.inference(data)
-    probs.to_csv(output, sep = '\t', header=True, index=True, index_label='image')
-
-
-def _train(args):
-    train(args.dataclass, args.train, args.valid, args.test, args.output_weights)
-
-
-def _inference(args):
-    inference(args.dataclass, args.data, args.model_weights, args.output)
-
-    
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers()
-
-    parser_train = subparsers.add_parser('train')
-    parser_train.add_argument('--dataclass', type=str, required=True)
-    parser_train.add_argument('--train', type=str, required=True)
-    parser_train.add_argument('--valid', type=str, required=False)
-    parser_train.add_argument('--test', type=str, required=False)
-    parser_train.add_argument('--output_weights', type=str, required=True)
-    parser_train.set_defaults(func=_train)
-
-    parser_inference = subparsers.add_parser('inference')
-    parser_inference.add_argument('--dataclass', type=str, required=True)
-    parser_inference.add_argument('--data', type=str, required=True)
-    parser_inference.add_argument('--model_weights', type=str, required=True)
-    parser_inference.add_argument('--output', type=str, required=False)
-    parser_inference.set_defaults(func=_inference)
-
-    args = parser.parse_args()
-    args.func(args)
-
-    '''
-
+    tmpl = ''.join(tmpl)
+    tmpl = tmpl.replace('__SCRIPTNAME__', os.path.basename(script_fpath))
     tmpl = __del_docstring(tmpl)
-    tmpl += '''
-"""
-Example Usage:
 
-
-python __scriptname__ train \\
-    --dataclass ./data/fruits/class.txt \\
-    --train ./data/fruits/train.txt \\
-    --valid ./data/fruits/valid.txt \\
-    --test ./data/fruits/test.txt \\
-    --output_weights ./output/fruits.pth
-
-    
-python __scriptname__ inference \\
-    --dataclass ./data/fruits/class.txt \\
-    --data ./data/fruits/images \\
-    --model_weights ./output/fruits.pth \\
-    --output ./output/fruits_results
-"""
-
-'''
-    tmpl = tmpl.replace('__scriptname__', os.path.basename(script_fpath))
-   
     with open(script_fpath, 'w') as fh:
         fh.write(tmpl)

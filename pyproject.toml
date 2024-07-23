@@ -41,7 +41,8 @@ full = [
     'pycocotools',
     'plotly >= 5.20',
     'kaleido >= 0.2',
-    'scikit-learn',
+    'sklearn',
+    'scikit-image',
 ]
 docs = [
     'cvtk[full]',
