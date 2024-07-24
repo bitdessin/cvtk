@@ -2,13 +2,14 @@ import os
 import numpy as np
 import cvtk
 import unittest
+import testutils
 
 
 class TestBaseUtils(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.im_dpath = 'data/fruits/images'
-        self.im_fpath = 'data/fruits/images/14c6e557.jpg'
+        self.im_dpath = testutils.cls_data['samples']
+        self.im_fpath = testutils.cls_data['sample']
         self.output_dpath = 'outputs/cvtk_baseutils'
         if not os.path.exists(self.output_dpath):
             os.makedirs(self.output_dpath)
@@ -64,7 +65,7 @@ class TestImageClasses(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.im_fpath = 'data/fruits/images/14c6e557.jpg'
+        self.im_fpath = testutils.cls_data['sample']
 
         self.labels = ['leaf', 'flower', 'root']
         self.bboxes = [[0, 0, 10, 10],

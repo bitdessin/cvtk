@@ -3,57 +3,59 @@ import subprocess
 import cvtk.ml.utils
 import cvtk.ml.torch
 import unittest
-
-
-def make_dirs(dpath):
-    if not os.path.exists(dpath):
-        os.makedirs(dpath)
+import testutils
 
 
 class TestTorch(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dpath = os.path.join('outputs', 'test_torch')
-        make_dirs(self.dpath)
+        testutils.make_dirs(self.dpath)
     
 
-    def __run_proc(self, module):
-        dpath = os.path.join(self.dpath, module)
-        make_dirs(dpath)
+    def __run_proc(self, module, code_generator):
+        dpath = os.path.join(self.dpath, f'{module}_{code_generator}')
+        testutils.make_dirs(dpath)
         script = os.path.join(dpath, 'script.py')
         
-        cvtk.ml.utils.generate_source(script, task='cls', module=module)
+        if code_generator == 'source':
+            cvtk.ml.utils.generate_source(script, task='cls', module=module)
+        elif code_generator == 'cmd':
+            testutils.run_cmd(['cvtk', 'create',
+                    '--task', 'cls',
+                    '--script', script,
+                    '--module', module])
 
-        cmd = ['python', script, 'train',
-                    '--label', './data/fruits/label.txt',
-                    '--train', './data/fruits/train.txt',
-                    '--valid', './data/fruits/valid.txt',
-                    '--test', './data/fruits/test.txt',
-                    '--output_weights', os.path.join(dpath, 'fruits.pth')]
-        print(' '.join(cmd))
-        output = subprocess.run(cmd)
-        if output.returncode != 0:
-            raise Exception('Error: {}'.format(output.returncode))
+        testutils.run_cmd(['python', script, 'train',
+                    '--label', testutils.cls_data['label'],
+                    '--train', testutils.cls_data['train'],
+                    '--valid', testutils.cls_data['valid'],
+                    '--test', testutils.cls_data['test'],
+                    '--output_weights', os.path.join(dpath, 'fruits.pth')])
 
-        cmd = ['python', script, 'inference',
-                    '--label', './data/fruits/label.txt',
-                    #'--data', './data/fruits/test.txt',
-                    '--data', './data/fruits/images',
+        testutils.run_cmd(['python', script, 'inference',
+                    '--label', testutils.cls_data['label'],
+                    #'--data', TU.cls_data['test'],
+                    '--data', testutils.cls_data['samples'],
                     '--model_weights', os.path.join(dpath, 'fruits.pth'),
-                    '--output', os.path.join(dpath, 'pred_outputs.txt')]
-        print(' '.join(cmd))
-        output = subprocess.run(cmd)
-        if output.returncode != 0:
-            raise Exception('Error: {}'.format(output.returncode))
+                    '--output', os.path.join(dpath, 'pred_outputs.txt')])
 
 
-    def test_cls_cvtk(self):
-        self.__run_proc('cvtk')
+    def test_cvtk_source(self):
+        self.__run_proc('cvtk', 'source')
 
 
-    def test_cls_torch(self):
-        self.__run_proc('torch')
-        
+    def test_torch_source(self):
+        self.__run_proc('torch', 'source')
+
+
+    def test_cvtk_cmd(self):
+        self.__run_proc('cvtk', 'cmd')
+
+
+    def test_torch_cmd(self):
+        self.__run_proc('torch', 'cmd')    
+    
 
 if __name__ == '__main__':
     unittest.main()
