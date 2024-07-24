@@ -782,7 +782,7 @@ def __generate_source(script_fpath, module='cvtk'):
         script_fpath += '.py'
 
     tmpl = ''
-    with open(importlib.resources.files('cvtk').joinpath('tmpl/torch_cls.py'), 'r') as infh:
+    with open(importlib.resources.files('cvtk').joinpath('tmpl/torch.py'), 'r') as infh:
         tmpl = infh.readlines()
 
     if module.lower() != 'cvtk':

@@ -863,7 +863,7 @@ def __generate_source(script_fpath, task, module='cvtk'):
         script_fpath += '.py'
 
     tmpl = ''
-    with open(importlib.resources.files('cvtk').joinpath('tmpl/mmdet_det.py'), 'r') as infh:
+    with open(importlib.resources.files('cvtk').joinpath('tmpl/mmdet.py'), 'r') as infh:
         tmpl = infh.readlines()
 
     if module.lower() != 'cvtk':
