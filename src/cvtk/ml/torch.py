@@ -16,7 +16,7 @@ import PIL.ImageFilter
 import torch
 import torchvision
 import torchvision.transforms.v2
-from cvtk.ml.data import DataClass
+from cvtk.ml.data import DataLabel
 from ._base import __get_imports, __insert_imports, __extend_cvtk_imports, __del_docstring
 
 
@@ -87,20 +87,20 @@ class Dataset(torch.utils.data.Dataset):
     In this class, upsampling is performed by specifying `upsampling=TRUE`.
     
     Args:
-        dataclass (DataClass): A DataClass instance. This dataclass is used to convert class labels to integers.
+        datalabel (DataLabel): A DataLabel instance. This datalabel is used to convert class labels to integers.
         dataset (str|list|tuple): A path to a directory, a list, a tuple, or a TSV file.
         transform (None|torchvision.transforms.Compose): A transform pipeline of image processing.
         balance_train (bool): If True, the number of images in each class is balanced
 
     Examples:
-        >>> from cvtk.ml import DataClass
+        >>> from cvtk.ml import DataLabel
         >>> from cvtk.ml.torch import Dataset, DataTransform
         >>> 
-        >>> dataclass = DataClass(['leaf', 'flower', 'root'])
+        >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
         >>> 
         >>> transform = DataTransform(224, is_train=True)
         >>> 
-        >>> dataset = Dataset(dataclass, 'train.txt', transform)
+        >>> dataset = Dataset(datalabel, 'train.txt', transform)
         >>> print(len(dataset))
         100
         >>> img, label = dataset[0]
@@ -108,17 +108,17 @@ class Dataset(torch.utils.data.Dataset):
         >>> print(label)
     """
     def __init__(self,
-                 dataclass,
+                 datalabel,
                  dataset,
                  transform=None,
                  upsampling=False):
         self.transform = transform
         self.upsampling = upsampling
-        self.x , self.y = self.__load_images(dataset, dataclass)
+        self.x , self.y = self.__load_images(dataset, datalabel)
         if len(self.x) == 0:
             raise ValueError('No images are loaded. Check the dataset.')
 
-    def __load_images(self, dataset, dataclass):
+    def __load_images(self, dataset, datalabel):
         x = []
         y = []
         if isinstance(dataset, str):
@@ -141,7 +141,7 @@ class Dataset(torch.utils.data.Dataset):
                         x.append(words[0])
                         # set label to None if the file does not contain the label column in the second column
                         if len(words) >= 2:
-                            y.append(dataclass[words[1]])
+                            y.append(datalabel[words[1]])
                         else:
                             y.append(None)
                     trainfh.close()
@@ -158,7 +158,7 @@ class Dataset(torch.utils.data.Dataset):
                 if isinstance(d, list) or isinstance(d, tuple):
                     if len(d) >= 2:
                         x.append(d[0])
-                        y.append(dataclass[d[1]])
+                        y.append(datalabel[d[1]])
                     else:
                         x.append(d[0])
                         y.append(None)
@@ -188,7 +188,7 @@ class Dataset(torch.utils.data.Dataset):
 
 
     def __unbiased_classes(self, x, y):
-        n_images = [[]] * len(self.dataclass)
+        n_images = [[]] * len(self.datalabel)
         for i in range(len(y)):
             n_images[y[i]].append(i)
 
@@ -219,12 +219,12 @@ def DataLoader(dataset, batch_size=32, num_workers=4, shuffle=False):
 
     Examples:
         >>> from cvtk.ml
-        >>> from cvtk.ml import DataClass
+        >>> from cvtk.ml import DataLabel
         >>> from cvtk.ml.torch import DataTransform, Dataset, DataLoader
         >>>
-        >>> dataclass = DataClass(['leaf', 'flower', 'root'])
+        >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
         >>> transform = DataTransform(224, is_train=True)
-        >>> dataset = Dataset(dataclass, 'train.txt', transform)
+        >>> dataset = Dataset(datalabel, 'train.txt', transform)
         >>> dataloader = DataLoader(dataset, batch_size=32, num_workers=4)
         >>> 
     """
@@ -239,8 +239,8 @@ class CLSCORE():
     CLSCORE is a class that provides training and inference functions for a classification model.
 
     Args:
-        dataclass (str|list|tuple|DataClass): A DataClass instance containing class labels.
-            If string (of file path), list, tuple is given, it is converted to a DataClass instance.
+        datalabel (str|list|tuple|DataLabel): A DataLabel instance containing class labels.
+            If string (of file path), list, tuple is given, it is converted to a DataLabel instance.
         model (str|torch.nn.Module): A string to specify a model or a torch.nn.Module instance.
         weights (str): A file path to model weights.
         temp_dirpath (str): A temporary directory path to save intermediate checkpoints and training logs.
@@ -248,7 +248,7 @@ class CLSCORE():
 
     Attributes:
         device (str): A device to run the model. Default is 'cuda' if available, otherwise 'cpu'.
-        dataclass (DataClass): A DataClass instance containing class labels.
+        datalabel (DataLabel): A DataLabel instance containing class labels.
         model (torch.nn.Module): A model of torch.nn.Module instance.
         temp_dirpath (str): A temporary directory path.
         train_stats (dict): A dictionary to save training statistics
@@ -259,16 +259,16 @@ class CLSCORE():
         >>> import torchvision
         >>> from cvtk.ml.torch import CLSCORE
         >>>
-        >>> dataclass = ['leaf', 'flower', 'root']
-        >>> m = CLSCORE(dataclass, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
+        >>> datalabel = ['leaf', 'flower', 'root']
+        >>> m = CLSCORE(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
         >>> 
-        >>> dataclass = 'class_label.txt'
-        >>> m = CLSCORE(dataclass, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
+        >>> datalabel = 'class_label.txt'
+        >>> m = CLSCORE(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
     """
-    def __init__(self, dataclass, model, weights=None, temp_dirpath=None):
+    def __init__(self, datalabel, model, weights=None, temp_dirpath=None):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.dataclass = self.__init_dataclass(dataclass)
-        self.model = self.__init_model(model, weights, len(self.dataclass.classes))
+        self.datalabel = self.__init_datalabel(datalabel)
+        self.model = self.__init_model(model, weights, len(self.datalabel.labels))
         self.temp_dirpath = self.__init_tempdir(temp_dirpath)
         
         self.model = self.model.to(self.device)
@@ -277,14 +277,14 @@ class CLSCORE():
         self.test_stats = None
 
     
-    def __init_dataclass(self, dataclass):
-        if isinstance(dataclass, DataClass):
+    def __init_datalabel(self, datalabel):
+        if isinstance(datalabel, DataLabel):
             pass
-        if isinstance(dataclass, str) or isinstance(dataclass, list) or isinstance(dataclass, tuple):
-            dataclass = DataClass(dataclass)
-        elif not isinstance(dataclass, DataClass):
-            raise TypeError('Invalid type: {}'.format(type(dataclass)))
-        return dataclass
+        if isinstance(datalabel, str) or isinstance(datalabel, list) or isinstance(datalabel, tuple):
+            datalabel = DataLabel(datalabel)
+        elif not isinstance(datalabel, DataLabel):
+            raise TypeError('Invalid type: {}'.format(type(datalabel)))
+        return datalabel
 
 
     def __init_model(self, model, weights, n_classes):
@@ -376,20 +376,20 @@ class CLSCORE():
         
         Examples:
             >>> import torch
-            >>> from cvtk.ml import DataClass
+            >>> from cvtk.ml import DataLabel
             >>> from cvtk.ml.torch import DataTransform, Dataset, DataLoader, CLSCORE
             >>> 
-            >>> dataclass = DataClass(['leaf', 'flower', 'root'])
+            >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
             >>> 
-            >>> model = CLSCORE(dataclass, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
+            >>> model = CLSCORE(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
             >>>
             >>> # train dataset
             >>> transforms_train = DataTransform(600, is_train=True)
-            >>> dataset_train = Dataset(dataclass, 'train.txt', transforms_train)
+            >>> dataset_train = Dataset(datalabel, 'train.txt', transforms_train)
             >>> dataloader_train = DataLoaders(dataset_train, batch_size=32, num_workers=4)
             >>> # valid dataset
             >>> transforms_valid = DataTransform(600, is_train=False)
-            >>> dataset_valid = Dataset(dataclass, 'valid.txt, transforms_valid)
+            >>> dataset_valid = Dataset(datalabel, 'valid.txt, transforms_valid)
             >>> dataloader_valid = DataLoader(dataset_valid, batch_size=32, num_workers=4)
             >>>
             >>> model.train(dataloader_train, dataloader_valid, epoch=20)
@@ -525,11 +525,11 @@ class CLSCORE():
 
         Examples:
             >>> import torch
-            >>> from cvtk.ml import DataClass
+            >>> from cvtk.ml import DataLabel
             >>> from cvtk.ml.torch import DataTransform, Dataset, DataLoader, CLSCORE
             >>> 
-            >>> dataclass = DataClass(['leaf', 'flower', 'root'])
-            >>> model = CLSCORE(dataclass, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
+            >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
+            >>> model = CLSCORE(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
             >>> 
             >>> # training
             >>> # ...
@@ -571,11 +571,11 @@ class CLSCORE():
         with open(output_log_fpath, 'w') as fh:
             fh.write('# loss: {}\n'.format(self.test_stats['loss']))
             fh.write('# acc: {}\n'.format(self.test_stats['acc']))
-            fh.write('\t'.join(['image', 'label'] + self.dataclass.classes) + '\n')
+            fh.write('\t'.join(['image', 'label'] + self.datalabel.labels) + '\n')
             for x_, y_, p_ in zip(self.test_stats['dataset'].x, self.test_stats['dataset'].y, self.test_stats['probs']):
                 fh.write('{}\t{}\t{}\n'.format(
                     x_,
-                    self.dataclass.classes[y_],
+                    self.datalabel.labels[y_],
                     '\t'.join([str(_) for _ in p_])))
                 
 
@@ -595,15 +595,15 @@ class CLSCORE():
         
         Examples:
             >>> import torch
-            >>> from cvtk.ml import DataClass
+            >>> from cvtk.ml import DataLabel
             >>> from cvtk.ml.torch import DataTransform, Dataset, DataLoader, CLSCORE
             >>> 
-            >>> dataclass = DataClass(['leaf', 'flower', 'root'])
+            >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
             >>>
-            >>> model = CLSCORE(dataclass, 'efficientnet_b7', 'plant_organs.pth')
+            >>> model = CLSCORE(datalabel, 'efficientnet_b7', 'plant_organs.pth')
             >>>
             >>> transform = DataTransform(600)
-            >>> dataset = Dataset(dataclass, 'sample.jpg', transform)
+            >>> dataset = Dataset(datalabel, 'sample.jpg', transform)
             >>> dataloader = DataLoader(dataset, batch_size=32, num_workers=4)
             >>> 
             >>> probs = model.inference(dataloader)
@@ -621,9 +621,9 @@ class CLSCORE():
                 outputs = self.model(inputs)
             probs.append(torch.nn.functional.softmax(outputs, dim=1).detach().cpu().numpy())
         probs = np.concatenate(probs, axis=0)
-        labels = self.dataclass[probs.argmax(axis=1).tolist()]
+        labels = self.datalabel[probs.argmax(axis=1).tolist()]
         
-        return self.__format_inference_output(probs, labels, dataloader.dataset.x, self.dataclass.classes, output, format)
+        return self.__format_inference_output(probs, labels, dataloader.dataset.x, self.datalabel.labels, output, format)
 
 
 
@@ -787,7 +787,7 @@ def __generate_source(script_fpath, module='cvtk'):
 
     if module.lower() != 'cvtk':
         cvtk_modules = [
-            {'cvtk.ml.data': [DataClass]},
+            {'cvtk.ml.data': [DataLabel]},
             {'cvtk.ml.torch': [DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm]}
         ]
         tmpl = __insert_imports(tmpl, __get_imports(__file__))

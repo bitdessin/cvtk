@@ -1,24 +1,24 @@
 import os
-from cvtk.ml.data import DataClass
+from cvtk.ml.data import DataLabel
 from cvtk.ml.torch import DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm
 
 
-def train(dataclass, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=10):
+def train(label, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=10):
     temp_dpath = os.path.splitext(output_weights)[0]
 
-    dataclass = DataClass(dataclass)
-    model = CLSCORE(dataclass, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
+    datalabel = DataLabel(label)
+    model = CLSCORE(datalabel, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
     
     train = DataLoader(
-                Dataset(dataclass, train, transform=DataTransform(224, is_train=True)),
+                Dataset(datalabel, train, transform=DataTransform(224, is_train=True)),
                 batch_size=batch_size, num_workers=num_workers, shuffle=True)
     if valid is not None:
         valid = DataLoader(
-                    Dataset(dataclass, valid, transform=DataTransform(224, is_train=False)),
+                    Dataset(datalabel, valid, transform=DataTransform(224, is_train=False)),
                     batch_size=batch_size, num_workers=num_workers)
     if test is not None:
         test = DataLoader(
-                    Dataset(dataclass, test, transform=DataTransform(224, is_train=False)),
+                    Dataset(datalabel, test, transform=DataTransform(224, is_train=False)),
                     batch_size=batch_size, num_workers=num_workers)
 
     model.train(train, valid, test, epoch=epoch)
@@ -30,14 +30,15 @@ def train(dataclass, train, valid, test, output_weights, batch_size=4, num_worke
             os.path.splitext(output_weights)[0] + '.test_outputs.png')
 
 
-def inference(dataclass, data, model_weights, output, batch_size=4, num_workers=8):
+def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
     temp_dpath = os.path.splitext(output)[0]
 
-    dataclass = DataClass(dataclass)
-    model = CLSCORE(dataclass, 'resnet18', model_weights, temp_dpath)
+    print(label)
+    datalabel = DataLabel(label)
+    model = CLSCORE(datalabel, 'resnet18', model_weights, temp_dpath)
 
     data = DataLoader(
-                Dataset(dataclass, data, transform=DataTransform(224, is_train=False)),
+                Dataset(datalabel, data, transform=DataTransform(224, is_train=False)),
                 batch_size=batch_size, num_workers=num_workers)
     
     probs = model.inference(data)
@@ -45,11 +46,11 @@ def inference(dataclass, data, model_weights, output, batch_size=4, num_workers=
 
 
 def _train(args):
-    train(args.dataclass, args.train, args.valid, args.test, args.output_weights)
+    train(args.label, args.train, args.valid, args.test, args.output_weights)
 
 
 def _inference(args):
-    inference(args.dataclass, args.data, args.model_weights, args.output)
+    inference(args.label, args.data, args.model_weights, args.output)
 
     
 if __name__ == '__main__':
@@ -59,7 +60,7 @@ if __name__ == '__main__':
     subparsers = parser.add_subparsers()
 
     parser_train = subparsers.add_parser('train')
-    parser_train.add_argument('--dataclass', type=str, required=True)
+    parser_train.add_argument('--label', type=str, required=True)
     parser_train.add_argument('--train', type=str, required=True)
     parser_train.add_argument('--valid', type=str, required=False)
     parser_train.add_argument('--test', type=str, required=False)
@@ -67,7 +68,7 @@ if __name__ == '__main__':
     parser_train.set_defaults(func=_train)
 
     parser_inference = subparsers.add_parser('inference')
-    parser_inference.add_argument('--dataclass', type=str, required=True)
+    parser_inference.add_argument('--label', type=str, required=True)
     parser_inference.add_argument('--data', type=str, required=True)
     parser_inference.add_argument('--model_weights', type=str, required=True)
     parser_inference.add_argument('--output', type=str, required=False)
@@ -82,7 +83,7 @@ Example Usage:
 
 
 python __SCRIPTNAME__ train \\
-    --dataclass ./data/fruits/class.txt \\
+    --label ./data/fruits/label.txt \\
     --train ./data/fruits/train.txt \\
     --valid ./data/fruits/valid.txt \\
     --test ./data/fruits/test.txt \\
@@ -90,7 +91,7 @@ python __SCRIPTNAME__ train \\
 
     
 python __SCRIPTNAME__ inference \\
-    --dataclass ./data/fruits/class.txt \\
+    --label ./data/fruits/label.txt \\
     --data ./data/fruits/images \\
     --model_weights ./output/fruits.pth \\
     --output ./output/fruits_results

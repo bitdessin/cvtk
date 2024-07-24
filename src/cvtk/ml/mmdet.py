@@ -36,7 +36,7 @@ import mmengine.runner
 import mmdet.evaluation
 from cvtk.base import imread, Image, ImageAnnotation, JsonComplexEncoder
 from cvtk.coco import calc_stats
-from cvtk.ml.data import DataClass
+from cvtk.ml.data import DataLabel
 from ._base import __del_docstring, __get_imports, __insert_imports, __extend_cvtk_imports
 
 
@@ -103,7 +103,7 @@ class DataSetCfg():
     Currently only support COCO dataset.
 
     Args:
-        dataclass (DataClass): The class
+        datalabel (DataLabel): The class
     """
 
     METAINFO = {
@@ -181,13 +181,13 @@ class DataSetCfg():
     
 
 
-def Dataset(dataclass, dataset=None, pipeline=None, repeat_dataset=False):
+def Dataset(datalabel, dataset=None, pipeline=None, repeat_dataset=False):
     """Generate dataset configuration
 
     This function generates the dataset configuration for MMDetection.
 
     Args:
-        dataclass (DataClass): The class
+        datalabel (DataLabel): The class
         dataset (list|str): The path to the dataset.
         pipeline (list): The image preprocessing pipeline.
         repeat_dataset (bool): Whether to repeat the dataset. Default is False.
@@ -196,7 +196,7 @@ def Dataset(dataclass, dataset=None, pipeline=None, repeat_dataset=False):
     """
     if isinstance(dataset, str) and dataset.endswith('.json'):
         dataset = dict(
-            metainfo=dict(classes=dataclass.classes),
+            metainfo=dict(classes=datalabel.labels),
             type='CocoDataset',
             data_root='',
             data_prefix=dict(img=''),
@@ -211,7 +211,7 @@ def Dataset(dataclass, dataset=None, pipeline=None, repeat_dataset=False):
             )
     else:
         dataset = dict(
-            metainfo=dict(classes=dataclass.classes),
+            metainfo=dict(classes=datalabel.labels),
             type='CocoDataset',
             pipeline=pipeline,
             data_root=os.path.abspath(dataset)
@@ -304,7 +304,7 @@ class MMDETCORE():
     Run `mim search mmdet --model "faster r-cnn"` to set the pre-defined configuration for `cfg`.
 
     Args:
-        dataclass (DataClass): The class for the dataset.
+        datalabel (DataLabel): The class for the dataset.
         cfg (str): The path to the configuration file.
         weights (str): The path to the model weights.
         workspace (str): The path to the workspace. Default is None.
@@ -312,12 +312,12 @@ class MMDETCORE():
 
     """
     def __init__(self,
-                 dataclass,
+                 datalabel,
                  cfg,
                  weights=None,
                  workspace=None):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.dataclass = self.__init_dataclass(dataclass)
+        self.datalabel = self.__init_datalabel(datalabel)
         self.cfg = self.__init_cfg(cfg, weights)
         self.tempd = self.__init_tempdir(workspace)
         self.mmdet_log_dpath = None
@@ -334,14 +334,14 @@ class MMDETCORE():
                         f'cannot be removed automatically. Please remove it manually.')
 
 
-    def __init_dataclass(self, dataclass):
-        if isinstance(dataclass, DataClass):
+    def __init_datalabel(self, datalabel):
+        if isinstance(datalabel, DataLabel):
             pass
-        if isinstance(dataclass, str) or isinstance(dataclass, list) or isinstance(dataclass, tuple):
-            dataclass = DataClass(dataclass)
-        elif not isinstance(dataclass, DataClass):
-            raise TypeError('Invalid type: {}'.format(type(dataclass)))
-        return dataclass
+        elif isinstance(datalabel, str) or isinstance(datalabel, list) or isinstance(datalabel, tuple):
+            datalabel = DataLabel(datalabel)
+        else:
+            raise TypeError('Invalid type: {}'.format(type(datalabel)))
+        return datalabel
 
 
     def __init_cfg(self, cfg, weights):
@@ -369,7 +369,7 @@ class MMDETCORE():
 
         cfg.launcher = 'none'
         cfg.resume = False
-        cfg = self.__set_classes(cfg, self.dataclass.classes)
+        cfg = self.__set_classes(cfg, self.datalabel.labels)
         return  cfg
 
 
@@ -481,9 +481,9 @@ class MMDETCORE():
             pred_outputs = pickle.load(infh)
 
         cocodict = {'images': [], 'annotations': [], 'categories': []}
-        for cate in self.dataclass.classes:
+        for cate in self.datalabel.labels:
             cocodict['categories'].append({
-                'id': self.dataclass[cate],
+                'id': self.datalabel[cate],
                 'name': cate
             })
 
@@ -503,7 +503,7 @@ class MMDETCORE():
                     cocodict['annotations'].append({
                         'id': annid,
                         'image_id': cocodict['images'][-1]['id'],
-                        'category_id': self.dataclass[imann['label']],
+                        'category_id': self.datalabel[imann['label']],
                         'score': imann['score'],
                         'bbox': self.__xyxy2xywh(imann['bbox']),
                         'area': imann['area'],
@@ -690,17 +690,17 @@ class MMDETCORE():
         else:
             pred_masks = [None] * len(pred_bboxes)
         
-        pred_labels = [self.dataclass[_] for _ in pred_labels]
+        pred_labels = [self.datalabel[_] for _ in pred_labels]
         imann = ImageAnnotation(pred_labels, pred_bboxes, pred_masks, pred_scores)
         return Image(im_fpath, annotations=imann)
         
 
 
-def coco(dataclass, images):
+def coco(datalabel, images):
     """Change inference output to COCO format
     
     Args:
-        dataclass (DataClass): The class.
+        datalabel (DataLabel): The class.
         outputs (list): The list of outputs.
 
     """
@@ -724,7 +724,7 @@ def coco(dataclass, images):
             coco['annotations'].append({
                 'id': len(coco['annotations']),
                 'image_id': ann_id,
-                'category_id': dataclass[ann['label']],
+                'category_id': datalabel[ann['label']],
                 'bbox': ann['bbox'],
                 'score': ann['score'],
                 'iscrowd': 0
@@ -736,10 +736,10 @@ def coco(dataclass, images):
                     'counts': m['counts'].decode()
                 }
 
-    for cl in dataclass.classes:
+    for cl in datalabel.labels:
         cate_id += 1
         coco['categories'].append({
-            'id': dataclass[cl],
+            'id': datalabel[cl],
             'name': cl
         })
     return coco
@@ -870,7 +870,7 @@ def __generate_source(script_fpath, task, module='cvtk'):
         cvtk_modules = [
             {'cvtk': [JsonComplexEncoder, ImageAnnotation, Image]},
             {'cvtk.coco': [calc_stats]},
-            {'cvtk.ml.data': [DataClass]},
+            {'cvtk.ml.data': [DataLabel]},
             {'cvtk.ml.mmdet': [DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines, coco]}
         ]
         tmpl = __insert_imports(tmpl, __get_imports(__file__))

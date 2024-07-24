@@ -5,7 +5,7 @@ import numpy as np
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-class DataClass():
+class DataLabel():
     """Class to treat class labels
 
     This class is designed to manage class (category) labels for machine learning tasks.
@@ -13,43 +13,42 @@ class DataClass():
     Methods implemented in the class provide a way to get the class index from the class name and vice versa.
 
     Args:
-        class_labels (tuple|list|str): A tuple or list,
+        labels (tuple|list|str): A tuple or list,
             or a path to a text file containing class labels.
             Text file should contain one class name per line.
     
     Examples:
-        >>> from cvtk.ml import DataClass
+        >>> from cvtk.ml import DataLabel
         >>> 
-        >>> class_labels = ['leaf', 'flower', 'root']
-        >>> dataclass = DataClass(class_labels)
-        >>> print(dataclass[1])
+        >>> labels = ['leaf', 'flower', 'root']
+        >>> DataLabel = DataLabel(labels)
+        >>> print(DataLabel[1])
         'flower'
-        >>> print(dataclass['flower'])
+        >>> print(DataLabel['flower'])
         1
-        >>> len(dataclass)
+        >>> len(DataLabel)
         3
-        >>> dataclass.classes
+        >>> DataLabel.classes
         ['leaf', 'flower', 'root']
         >>> 
         >>> 
-        >>> class_labels = 'class_labels.txt'
-        >>> dataclass = DataClass(class_labels)
-        >>> print(dataclass[1])
+        >>> labels = 'labels.txt'
+        >>> DataLabel = DataLabel(labels)
+        >>> print(DataLabel[1])
         'flower'
-        >>> print(dataclass['flower'])
+        >>> print(DataLabel['flower'])
         1
     """
-    def __init__(self, class_labels):
-        if isinstance(class_labels, list) or isinstance(class_labels, tuple):
-            self.classes = class_labels
-        elif isinstance(class_labels, str):
-            self.classes = self.__load_classnames(class_labels)
+    def __init__(self, labels):
+        if isinstance(labels, list) or isinstance(labels, tuple):
+            self.__labels = labels
+        elif isinstance(labels, str):
+            self.__labels = self.__load_labels(labels)
         else:
-            raise TypeError('Expect list, tuple, or str for `class_labels` but {} was given.'.format(type(class_labels)))
-
+            raise TypeError('Expect list, tuple, or str for `labels` but {} was given.'.format(type(labels)))
 
     def __len__(self):
-        return len(self.classes)
+        return len(self.__labels)
 
 
     def __getitem__(self, i):
@@ -63,12 +62,12 @@ class DataClass():
 
     def __getitem(self, i):
         if isinstance(i, int):
-            return self.classes[i]
+            return self.__labels[i]
         elif isinstance(i, str):
-            return self.classes.index(i)
+            return self.__labels.index(i)
 
 
-    def __load_classnames(self, fpath):
+    def __load_labels(self, fpath):
         cl = []
         with open(fpath, 'r') as f:
             cl_ = f.read().splitlines()
@@ -76,7 +75,15 @@ class DataClass():
             if (cl__ != ''):
                 cl.append(cl__)
         return cl
+    
+    
+    @property
+    def labels(self):
+        return self.__labels
 
+    @labels.setter
+    def labels(self):
+        raise AttributeError('DataLabel class does not support setting labels. Use the constructor to set labels.')
 
 
 
