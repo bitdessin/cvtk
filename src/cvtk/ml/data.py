@@ -1,3 +1,5 @@
+import os
+import json
 import PIL
 import PIL.Image
 import PIL.ImageFile
@@ -14,7 +16,7 @@ class DataLabel():
 
     Args:
         labels (tuple|list|str): A tuple or list,
-            or a path to a text file containing class labels.
+            or a path to a text file or coco format containing class labels.
             Text file should contain one class name per line.
     
     Examples:
@@ -69,11 +71,17 @@ class DataLabel():
 
     def __load_labels(self, fpath):
         cl = []
-        with open(fpath, 'r') as f:
-            cl_ = f.read().splitlines()
-        for cl__ in cl_:
-            if (cl__ != ''):
-                cl.append(cl__)
+        if os.path.splitext(fpath)[1] == '.json':
+            with open(fpath, 'r') as fh:
+                coco_dict = json.load(fh)
+            for cat in sorted(coco_dict['categories'], key=lambda x: x['id']):
+                cl.append(cat['name'])
+        else:
+            with open(fpath, 'r') as fh:
+                for _ in fh:
+                    _ = _.strip()
+                    if _ != '':
+                        cl.append(_)
         return cl
     
     
