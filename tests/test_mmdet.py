@@ -10,19 +10,13 @@ import testutils
 class TestMMDet(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.dpath = os.path.join('outputs', 'test_mmdet')
-        testutils.make_dirs(self.dpath)
+        self.dpath = testutils.set_ws(os.path.join('outputs', 'test_mmdet'))
     
 
     def __run_proc(self, task, module, code_generator):
-        dpath = os.path.join(self.dpath, f'{task}_{module}_{code_generator}')
-        testutils.make_dirs(dpath)
+        dpath = testutils.set_ws(os.path.join(self.dpath, f'{task}_{module}_{code_generator}'))
         
         script = os.path.join(dpath, 'script.py')
-        data = {
-            'det': testutils.det_data,
-            'segm': testutils.segm_data
-        }
         
         if code_generator == 'source':
             cvtk.ml.utils.generate_source(script, task=task, module=module)
@@ -32,21 +26,16 @@ class TestMMDet(unittest.TestCase):
                     '--script', script,
                     '--module', module])
 
-        testutils.run_cmd(['cvtk', 'create',
-                    '--task', task,
-                    '--script', script,
-                    '--module', module])
-
         testutils.run_cmd(['python', script, 'train',
-                    '--label', data[task]['label'],
-                    '--train', data[task]['train'],
-                    '--valid', data[task]['valid'],
-                    '--test', data[task]['test'],
+                    '--label', testutils.data[task]['label'],
+                    '--train', testutils.data[task]['train'],
+                    '--valid', testutils.data[task]['valid'],
+                    '--test', testutils.data[task]['test'],
                     '--output_weights', os.path.join(dpath, 'sb.pth')])
 
         testutils.run_cmd(['python', script, 'inference',
-                    '--label', data[task]['label'],
-                    '--data', data[task]['samples'],
+                    '--label', testutils.data[task]['label'],
+                    '--data', testutils.data[task]['samples'],
                     '--model_weights', os.path.join(dpath, 'sb.pth'),
                     '--output', os.path.join(dpath, 'pred_outputs')])
     

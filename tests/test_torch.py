@@ -9,13 +9,11 @@ import testutils
 class TestTorch(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.dpath = os.path.join('outputs', 'test_torch')
-        testutils.make_dirs(self.dpath)
+        self.dpath = testutils.set_ws(os.path.join('outputs', 'test_torch'))
     
 
     def __run_proc(self, module, code_generator):
-        dpath = os.path.join(self.dpath, f'{module}_{code_generator}')
-        testutils.make_dirs(dpath)
+        dpath = testutils.set_ws(os.path.join(self.dpath, f'{module}_{code_generator}'))
         script = os.path.join(dpath, 'script.py')
         
         if code_generator == 'source':
@@ -27,16 +25,16 @@ class TestTorch(unittest.TestCase):
                     '--module', module])
 
         testutils.run_cmd(['python', script, 'train',
-                    '--label', testutils.cls_data['label'],
-                    '--train', testutils.cls_data['train'],
-                    '--valid', testutils.cls_data['valid'],
-                    '--test', testutils.cls_data['test'],
+                    '--label', testutils.data['cls']['label'],
+                    '--train', testutils.data['cls']['train'],
+                    '--valid', testutils.data['cls']['valid'],
+                    '--test', testutils.data['cls']['test'],
                     '--output_weights', os.path.join(dpath, 'fruits.pth')])
 
         testutils.run_cmd(['python', script, 'inference',
-                    '--label', testutils.cls_data['label'],
-                    #'--data', TU.cls_data['test'],
-                    '--data', testutils.cls_data['samples'],
+                    '--label', testutils.data['cls']['label'],
+                    #'--data', TU.data['cls']['test'],
+                    '--data', testutils.data['cls']['samples'],
                     '--model_weights', os.path.join(dpath, 'fruits.pth'),
                     '--output', os.path.join(dpath, 'pred_outputs.txt')])
 

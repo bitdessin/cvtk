@@ -8,11 +8,9 @@ import testutils
 class TestBaseUtils(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.im_dpath = testutils.cls_data['samples']
-        self.im_fpath = testutils.cls_data['sample']
-        self.output_dpath = 'outputs/cvtk_baseutils'
-        if not os.path.exists(self.output_dpath):
-            os.makedirs(self.output_dpath)
+        self.im_dpath = testutils.data['cls']['samples']
+        self.im_fpath = testutils.data['cls']['sample']
+        self.output_dpath = testutils.set_ws('outputs/cvtk_baseutils')
 
 
     def test_imconvert(self):
@@ -65,7 +63,7 @@ class TestImageClasses(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.im_fpath = testutils.cls_data['sample']
+        self.im_fpath = testutils.data['cls']['sample']
 
         self.labels = ['leaf', 'flower', 'root']
         self.bboxes = [[0, 0, 10, 10],
