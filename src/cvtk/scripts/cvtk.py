@@ -21,7 +21,18 @@ def split_dataset(args):
     
 
 def create(args):
-    cvtk.ml.utils.generate_source(args.script, task=args.task, module=args.module)
+    cvtk.ml.utils.generate_source(args.script,
+                                  task=args.task,
+                                  module=args.module)
+
+
+def app(args):
+    cvtk.ml.utils.generate_app(args.project,
+                               source=args.source,
+                               label=args.label,
+                               model=args.model,
+                               weights=args.weights,
+                               module=args.module)
 
 
 def main():
@@ -33,6 +44,15 @@ def main():
     parser_train.add_argument('--task', type=str, default='cls')
     parser_train.add_argument('--module', type=str, default='cvtk')
     parser_train.set_defaults(func=create)
+
+    parser_train = subparsers.add_parser('app')
+    parser_train.add_argument('--project', type=str, required=True)
+    parser_train.add_argument('--source', type=str, required=True)
+    parser_train.add_argument('--label', type=str, required=True)
+    parser_train.add_argument('--model', type=str, default=True)
+    parser_train.add_argument('--weights', type=str, required=True)
+    parser_train.add_argument('--module', type=str, default='cvtk')
+    parser_train.set_defaults(func=app)
 
     parser_split_text = subparsers.add_parser('split')
     parser_split_text.add_argument('--input', type=str, required=True)

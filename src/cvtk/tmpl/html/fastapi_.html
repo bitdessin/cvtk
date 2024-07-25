@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Demo Application</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://assets.ubuntu.com/v1/vanilla-framework-version-4.6.0.min.css" />
+<style>
+#inferenceResult {
+    display: none;
+}
+</style>
+<script>
+
+// #%CVTK%# IF TASK=cls
+function predict() {
+    document.getElementById('outputData').innerHTML = '';
+    document.getElementById('inferenceResult').style.display = 'none';
+    const form = document.getElementById('queryForm');
+    const formData = new FormData(form);
+    let xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/inference');
+    xhr.onreadystatechange  = function (e) {
+        if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+                let response = JSON.parse(xhr.responseText);
+                console.log(response);
+
+                outputTableHtml = '<div><img src="' + response['data']['image']+ '" /></div>';
+
+                outputTableHtml = '<table><tr><td>Label</td><td>Probability</td></tr>';
+                for (let pred of response['data']) {
+                    outputTableHtml += '<tr><td>' + pred['label'] + '</td><td>' + pred['prob'] + '</td></tr>';
+                }
+                outputTableHtml += '</table>';
+                document.getElementById('outputData').innerHTML = outputTableHtml;
+                document.getElementById('inferenceResult').style.display = 'block';
+            } else {
+                console.error(xhr.statusText);
+            }
+        }
+
+        const runInference = document.getElementById('submitButton');
+        runInference.innerText = 'Inference';
+        runInference.disabled = false;
+        console.log('DONE.');
+    };
+    xhr.send(formData);
+}
+// #%CVTK%# ENDIF
+
+// #%CVTK%# IF TASK=det,segm
+function drawOutlines(canvas, imgSrc, imgAnns) {
+    let ctx = canvas.getContext('2d');
+    let img = new Image();
+    img.src = imgSrc;
+    img.onload = function() {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        ctx.lineWidth = 3;
+        ctx.font = 'bold 1em sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        
+        bboxColorDict = {};
+        for (let imgAnn of imgAnns) {
+            if (!(imgAnn['label'] in bboxColorDict)) {
+                bboxColorDict[imgAnn['label']] = '#' + Math.floor(Math.random()*16777215).toString(16);
+            }
+            ctx.strokeStyle = bboxColorDict[imgAnn['label']];
+            ctx.fillStyle = bboxColorDict[imgAnn['label']];
+
+            console.log('draw bbox');
+            console.log(imgAnn);
+            const bbox = imgAnn['bbox'];
+            ctx.strokeRect(canvas.width * (bbox[0] / img.width),
+                           canvas.height * (bbox[1] / img.height),
+                           canvas.width * ((bbox[2] - bbox[0]) / img.width),
+                           canvas.height * ((bbox[3] - bbox[1]) / img.height));
+            ctx.fillText(imgAnn['label'] + ' (' + imgAnn['score'].toFixed(2) + ')',
+                         canvas.width * (bbox[0] / img.width),
+                         canvas.height * (bbox[1] / img.height));
+
+            if ('polygons' in imgAnn) {
+                for (let polygon of imgAnn['polygons']) {
+                    console.log('draw polygon');
+                    console.log(polygon);
+                    ctx.beginPath();
+                    for (let point of polygon) {
+                        ctx.lineTo(canvas.width * (point[0] / img.width),
+                                   canvas.height * (point[1] / img.height));
+                    }
+                    ctx.closePath();
+                }
+            }
+            ctx.stroke();
+        }
+    };
+}
+
+
+function predict() {
+    document.getElementById('outputData').innerHTML = '';
+    document.getElementById('inferenceResult').style.display = 'none';
+    const form = document.getElementById('queryForm');
+    const formData = new FormData(form);
+    let xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/inference');
+    xhr.onreadystatechange  = function (e) {
+        if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+                let response = JSON.parse(xhr.responseText);
+                let canvas = document.getElementById('inputImage');
+                drawOutlines(canvas, response['data']['image'], response['data']['annotations']);
+                document.getElementById('inferenceResult').style.display = 'block';
+            } else {
+                console.error(xhr.statusText);
+            }
+        }
+
+        const runInference = document.getElementById('submitButton');
+        runInference.innerText = 'Inference';
+        runInference.disabled = false;
+        console.log('DONE.');
+    };
+    xhr.send(formData);
+}
+// #%CVTK%# ENDIF
+
+window.onload = function() {
+    const runInference = document.getElementById('submitButton');
+    console.log(runInference);
+    runInference.addEventListener('click', (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        predict();
+        runInference.innerText = 'predicting ...';
+        runInference.disabled = true;
+    });
+}
+</script>
+</head>
+<body>
+<section class="section">
+<div class="container">
+    <div class="row">
+        <h1 class="title">Demo Application</h1>
+    </div>
+    
+    <div id="queryFormDiv" class="row">
+        <form id="queryForm" method="POST" enctype="multipart/form-data">            
+            <div class="file has-addons is-fullwidth" style="border:1px solid; padding: 0.3rem; margin: 1rem 0; border-radius: 3px;">
+                <label class="file-label">
+                <input id="inputFile" class="file-input" type="file" name="file">
+                <span class="file-cta">
+                <span class="file-label">Upload an image</span>
+                </span>
+                <span class="file-name" id="inputFile-filename"></span>
+                </label>
+            </div>
+            <div class="field has-addons">
+                <div class="control">
+                    <button id="submitButton" class="button is-link">Inference</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div id="inferenceResult" class="row"> 
+        <h1 class="title is-1">Inference Result</h1>
+        <!-- #%CVTK%# IF TASK=det,segm -->
+        <canvas id="inputImage" style="width:100%;height:100%;"></canvas>
+        <!-- #%CVTK%# ENDIF -->
+        <div id="outputData"></div>
+    </div>
+
+</div>
+</section>
+
+</body>
+</html>

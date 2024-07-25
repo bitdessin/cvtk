@@ -1,4 +1,8 @@
+import os
+import shutil
+import importlib
 import random
+import re
 from .torch import __generate_source as generate_source_cls
 from .mmdet import __generate_source as generate_source_det
 
@@ -119,3 +123,128 @@ def generate_source(project, task='classification', module='cvtk'):
         generate_source_det(project, task, module)
     else:
         raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`seg`) tasks.')
+
+
+def generate_app(project, source, label, model, weights, module='cvtk'):
+    """Generate a FastAPI application for inference of a classification or detection model
+    
+    This function generates a FastAPI application for inference of a classification or detection model.
+
+    Args:
+        project (str): A file path to save the FastAPI application.
+        source (str): The source code of the model.
+        label (str): The label file of the dataset.
+        model (str): The configuration file of the model.
+        weights (str): The weights file of the model.
+        module (str): The module name of the model. The default is 'cvtk'.
+
+    Examples:
+        >>> from cvtk.ml import generate_app
+        >>> generate_app('./project', 'model.py', 'label.txt', 'model.cfg', 'model.pth')
+    
+    """
+
+    if not os.path.exists(project):
+        os.makedirs(project)
+
+    coremodule = os.path.splitext(os.path.basename(source))[0]
+    data_label = os.path.basename(label)
+    model_cfg = os.path.basename(model)
+    model_weights = os.path.basename(weights)
+
+    shutil.copy2(source, os.path.join(project, coremodule + '.py'))
+    shutil.copy2(label, os.path.join(project, data_label))
+    if os.path.exists(model):
+        shutil.copy2(model, os.path.join(project, model_cfg))
+    shutil.copy2(weights, os.path.join(project, model_weights))
+
+    task = __estimate_task_from_source(source)
+
+    # FastAPI script
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/fastapi_.py'), task)
+    if module != 'cvtk':
+        for i in range(len(tmpl)):
+            if tmpl[i][:9] == 'from cvtk':
+                if task == 'cls':
+                    tmpl[i] = f'from {coremodule} import CLSCORE as MODULECORE'
+                elif task == 'det':
+                    tmpl[i] = f'from {coremodule} import MMDETCORE as MODULECORE'
+                else:
+                    raise ValueError('Unsupport Type.')
+    tmpl = ''.join(tmpl)
+    tmpl = tmpl.replace('__DATALABEL__', data_label)
+    tmpl = tmpl.replace('__MODELCFG__', model_cfg)
+    tmpl = tmpl.replace('__MODELWEIGHT__', model_weights)
+    with open(os.path.join(project, 'main.py'), 'w') as fh:
+        fh.write(tmpl)
+
+    # HTML template
+    if not os.path.exists(os.path.join(project, 'templates')):
+        os.makedirs(os.path.join(project, 'templates'))
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/html/fastapi_.html'), task)
+    with open(os.path.join(project, 'templates', 'index.html'), 'w') as fh:
+        fh.write(''.join(tmpl))
+    
+
+    
+def __generate_app_html_tmpl(tmpl_fpath, task):
+    tmpl = []
+
+    write_code = True
+    with open(tmpl_fpath, 'r') as infh:
+        for codeline in infh:
+            if '#%CVTK%#' in codeline:
+                if ' IF' in codeline:
+                    m = re.search(r'TASK=([^\s\}]+)', codeline)
+                    task_code = m.group(1) if m else None
+                    if task_code is None:
+                        raise ValueError('Unable to get task code.')
+                    if task in task_code:
+                        write_code = True
+                    else:
+                        write_code = False
+                elif ' ENDIF' in codeline:
+                    write_code = True
+                continue
+
+            if write_code:
+                tmpl.append(codeline)
+
+    return tmpl
+
+
+def __estimate_task_from_source(source):
+    task_ = {
+        'CLSCORE': {'classdef': 0, 'import': 0, 'call': 0},
+        'MMDETCORE': {'classdef': 0, 'import': 0, 'call': 0}
+    }
+    with open(source, 'r') as infh:
+        for codeline in infh:
+            if 'class CLSCORE' in codeline:
+                task_['CLSCORE']['classdef'] += 1
+            elif 'import cvtk.ml.torch' in codeline:
+                task_['CLSCORE']['import'] += 1
+            elif 'from cvtk.ml.torch import' in codeline and 'CLSCORE' in codeline:
+                task_['CLSCORE']['import'] += 1
+            elif 'CLSCORE(' in codeline:
+                task_['CLSCORE']['call'] += 1
+            elif 'class MMDETCORE' in codeline:
+                task_['MMDETCORE']['classdef'] += 1
+            elif 'import cvtk.ml.mmdet' in codeline:
+                task_['MMDETCORE']['import'] += 1
+            elif 'from cvtk.ml.mmdet import' in codeline and 'MMDETCORE' in codeline:
+                task_['MMDETCORE']['import'] += 1
+            elif 'MMDETCORE(' in codeline:
+                task_['MMDETCORE']['call'] += 1              
+    
+    is_task_cls = ((task_['CLSCORE']['classdef'] > 0) or (task_['CLSCORE']['import'] > 0)) and (task_['CLSCORE']['call'] > 0)
+    is_task_det = ((task_['MMDETCORE']['classdef'] > 0) or (task_['MMDETCORE']['import'] > 0)) and (task_['MMDETCORE']['call'] > 0)
+
+    if is_task_cls and not is_task_det:
+        task = 'cls'
+    elif not is_task_cls and is_task_det:
+        task = 'det'
+    else:
+        raise ValueError('The task type cannot be determined from the source code. Make sure your source code contains CLSCORE or MMDETCORE class definition or importation, and call.')
+
+    return task

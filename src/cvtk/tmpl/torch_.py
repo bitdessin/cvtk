@@ -33,7 +33,6 @@ def train(label, train, valid, test, output_weights, batch_size=4, num_workers=8
 def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
     temp_dpath = os.path.splitext(output)[0]
 
-    print(label)
     datalabel = DataLabel(label)
     model = CLSCORE(datalabel, 'resnet18', model_weights, temp_dpath)
 

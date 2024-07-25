@@ -319,6 +319,7 @@ class MMDETCORE():
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.datalabel = self.__init_datalabel(datalabel)
         self.cfg = self.__init_cfg(cfg, weights)
+        self.model = None
         self.tempd = self.__init_tempdir(workspace)
         self.mmdet_log_dpath = None
 
@@ -345,6 +346,7 @@ class MMDETCORE():
 
 
     def __init_cfg(self, cfg, weights):
+        print(f'{cfg=}, {weights=}')
         chk = None
         if isinstance(cfg, str):
             if not os.path.exists(cfg):
@@ -593,7 +595,7 @@ class MMDETCORE():
 
 
 
-    def inference(self, dataloader, score_cutoff=0.5):
+    def inference(self, data, format='cvtk.Image', cutoff=0):
         """Inference
 
         perform inference.
@@ -602,25 +604,41 @@ class MMDETCORE():
             dataloader (DataLoader): The dataloader configuration.
             score_cutoff (float): The score cutoff for inference. Default is 0.5.
         """
-        self.cfg.merge_from_dict(dataloader)
-        model = mmdet.apis.init_detector(self.cfg, self.cfg.load_from, device=self.device)
+        if format.lower() not in ['cvtk.image', 'coco', 'cvtk.json']:
+            raise ValueError('Invalid format: {}'.format(format))
 
-        # find images from given directory or cocojson
-        data_dpath = self.cfg.test_dataloader.dataset.data_root
-        if data_dpath == '':
-            if self.cfg.test_dataloader.dataset.type == 'RepeatDataset':
-                data_dpath = self.cfg.test_dataloader.dataset.dataset.ann_file
-            else:
-                data_dpath = self.cfg.test_dataloader.dataset.ann_file
-        input_images = self.__load_images(data_dpath)
-        self.cfg.test_dataloader.dataset.data_root = ''
- 
-        pred_outputs = mmdet.apis.inference_detector(model, input_images)
+        input_images = []
+        if isinstance(data, dict):
+            # test dataloader defined by mmdet
+            self.cfg.merge_from_dict(data)
+            data_dpath = self.cfg.test_dataloader.dataset.data_root
+            if data_dpath == '':
+                if self.cfg.test_dataloader.dataset.type == 'RepeatDataset':
+                    data_dpath = self.cfg.test_dataloader.dataset.dataset.ann_file
+                else:
+                    data_dpath = self.cfg.test_dataloader.dataset.ann_file
+            input_images = self.__load_images(data_dpath)
+            self.cfg.test_dataloader.dataset.data_root = ''
+        else:
+            input_images = self.__load_images(data)
+
+        if self.model is None:
+            self.model = mmdet.apis.init_detector(self.cfg, self.cfg.load_from, device=self.device)
+        pred_outputs = mmdet.apis.inference_detector(self.model, input_images)
         
         # format
         outputs_fmt = []
         for target_image, output in zip(input_images, pred_outputs):
-            outputs_fmt.append(self.__format_mmdet_output(target_image, output.pred_instances, score_cutoff))
+            output_fmt = self.__format_mmdet_output(target_image, output.pred_instances, cutoff)
+            if format.lower() == 'cvtk.json':
+                output_fmt = {
+                    'image': output_fmt.file_path,
+                    'annotations': json.loads(output_fmt.annotations.dump())
+                }
+            outputs_fmt.append(output_fmt)
+        if format.lower() == 'coco':
+            outputs_fmt = coco(self.datalabel, outputs_fmt)
+
         return outputs_fmt
     
     
@@ -655,7 +673,7 @@ class MMDETCORE():
         return x
     
     
-    def __format_mmdet_output(self, im_fpath, pred_instances, score_cutoff=0):
+    def __format_mmdet_output(self, im_fpath, pred_instances, cutoff=0):
         if 'bboxes' in pred_instances:
             if isinstance(pred_instances, dict):
                 pred_bboxes = pred_instances['bboxes'].detach().cpu().numpy().tolist()
@@ -691,7 +709,19 @@ class MMDETCORE():
             pred_masks = [None] * len(pred_bboxes)
         
         pred_labels = [self.datalabel[_] for _ in pred_labels]
-        imann = ImageAnnotation(pred_labels, pred_bboxes, pred_masks, pred_scores)
+
+        pred_labels_ = []
+        pred_bboxes_ = []
+        pred_masks_ = []
+        pred_scores_ = []
+        for i in range(len(pred_labels)):
+            if pred_scores[i] >= cutoff:
+                pred_labels_.append(pred_labels[i])
+                pred_bboxes_.append(pred_bboxes[i])
+                pred_masks_.append(pred_masks[i])
+                pred_scores_.append(pred_scores[i])
+
+        imann = ImageAnnotation(pred_labels_, pred_bboxes_, pred_masks_, pred_scores_)
         return Image(im_fpath, annotations=imann)
         
 
@@ -863,7 +893,7 @@ def __generate_source(script_fpath, task, module='cvtk'):
         script_fpath += '.py'
 
     tmpl = ''
-    with open(importlib.resources.files('cvtk').joinpath('tmpl/mmdet.py'), 'r') as infh:
+    with open(importlib.resources.files('cvtk').joinpath('tmpl/mmdet_.py'), 'r') as infh:
         tmpl = infh.readlines()
 
     if module.lower() != 'cvtk':

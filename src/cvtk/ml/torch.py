@@ -127,7 +127,7 @@ class Dataset(torch.utils.data.Dataset):
                 if filetype.is_image(dataset):
                     # load a single image file
                     x = [dataset]
-                    y = []
+                    y = [None]
                 else:
                     # load a tab-separated file
                     if dataset.endswith('.gz') or dataset.endswith('.gzip'):
@@ -243,14 +243,14 @@ class CLSCORE():
             If string (of file path), list, tuple is given, it is converted to a DataLabel instance.
         model (str|torch.nn.Module): A string to specify a model or a torch.nn.Module instance.
         weights (str): A file path to model weights.
-        temp_dirpath (str): A temporary directory path to save intermediate checkpoints and training logs.
+        workspace (str): A temporary directory path to save intermediate checkpoints and training logs.
             If not given, the intermediate results are not saved.
 
     Attributes:
         device (str): A device to run the model. Default is 'cuda' if available, otherwise 'cpu'.
         datalabel (DataLabel): A DataLabel instance containing class labels.
         model (torch.nn.Module): A model of torch.nn.Module instance.
-        temp_dirpath (str): A temporary directory path.
+        workspace (str): A temporary directory path.
         train_stats (dict): A dictionary to save training statistics
         test_stats (dict): A dictionary to save test statistics
 
@@ -265,11 +265,11 @@ class CLSCORE():
         >>> datalabel = 'class_label.txt'
         >>> m = CLSCORE(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
     """
-    def __init__(self, datalabel, model, weights=None, temp_dirpath=None):
+    def __init__(self, datalabel, model, weights=None, workspace=None):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.datalabel = self.__init_datalabel(datalabel)
         self.model = self.__init_model(model, weights, len(self.datalabel.labels))
-        self.temp_dirpath = self.__init_tempdir(temp_dirpath)
+        self.workspace = self.__init_tempdir(workspace)
         
         self.model = self.model.to(self.device)
         
@@ -350,10 +350,10 @@ class CLSCORE():
     
 
 
-    def __init_tempdir(self, temp_dirpath):
-        if (temp_dirpath is not None) and (not os.path.exists(temp_dirpath)):
-            os.makedirs(temp_dirpath)
-        return temp_dirpath
+    def __init_tempdir(self, workspace):
+        if (workspace is not None) and (not os.path.exists(workspace)):
+            os.makedirs(workspace)
+        return workspace
 
 
 
@@ -437,17 +437,17 @@ class CLSCORE():
                     'probs': probs
                 }
             
-            if self.temp_dirpath is not None:
-                self.save(os.path.join(self.temp_dirpath, f'checkpoint_latest.pth'))
+            if self.workspace is not None:
+                self.save(os.path.join(self.workspace, f'checkpoint_latest.pth'))
 
 
     def __update_model_weight(self):
         last_epoch = 0
-        if self.temp_dirpath is None:
+        if self.workspace is None:
             return last_epoch
 
-        trainstats_fpath = os.path.join(self.temp_dirpath, 'train_stats.txt')
-        chk_fpath = os.path.join(self.temp_dirpath, 'checkpoint_latest.pth')
+        trainstats_fpath = os.path.join(self.workspace, 'train_stats.txt')
+        chk_fpath = os.path.join(self.workspace, 'checkpoint_latest.pth')
         if os.path.exists(trainstats_fpath) and os.path.exists(chk_fpath):
             # update train stats
             with open(trainstats_fpath, 'r') as fh:
@@ -499,7 +499,6 @@ class CLSCORE():
                     loss.backward()
                     optimizer.step()
 
-            #running_loss += loss.item() * inputs.size(0)
             running_loss += loss * inputs.size(0)
             running_corrects += torch.sum(preds == labels.data)
             probs.append(torch.nn.functional.softmax(outputs, dim=1).detach().cpu().numpy())
@@ -580,7 +579,7 @@ class CLSCORE():
                 
 
 
-    def inference(self, dataloader, output='prob+label', format='pandas'):
+    def inference(self, data, value='prob+label', format='pandas', batch_size=32, num_workers=8):
         """Perform inference with the input images
 
         Perform inference with the input images with the trained model.
@@ -612,6 +611,13 @@ class CLSCORE():
         self.model = self.model.to(self.device)
         self.model.eval()
 
+        if isinstance(data, torch.utils.data.DataLoader):
+            dataloader = data
+        else:
+            dataloader = DataLoader(
+                Dataset(self.datalabel, data, transform=DataTransform(512, is_train=False)),
+                batch_size=batch_size, num_workers=num_workers)
+
         probs = []
         for inputs in dataloader:
             if not isinstance(inputs, torch.Tensor):
@@ -623,12 +629,12 @@ class CLSCORE():
         probs = np.concatenate(probs, axis=0)
         labels = self.datalabel[probs.argmax(axis=1).tolist()]
         
-        return self.__format_inference_output(probs, labels, dataloader.dataset.x, self.datalabel.labels, output, format)
+        return self.__format_inference_output(probs, labels, dataloader.dataset.x, self.datalabel.labels, value, format)
 
 
 
-    def __format_inference_output(self, probs, labels, images, cl, output, format):
-        if output == 'prob':
+    def __format_inference_output(self, probs, labels, images, cl, value, format):
+        if value == 'prob':
             if format in ['list']:
                 return probs.tolist()
             elif format in ['tuple']:
@@ -637,7 +643,7 @@ class CLSCORE():
                 return probs
             else:
                 return pd.DataFrame(probs, index=images, columns=cl)
-        elif output == 'label':
+        elif value == 'label':
             if format in ['list']:
                 return labels
             elif format in ['tuple']:
@@ -782,7 +788,7 @@ def __generate_source(script_fpath, module='cvtk'):
         script_fpath += '.py'
 
     tmpl = ''
-    with open(importlib.resources.files('cvtk').joinpath('tmpl/torch.py'), 'r') as infh:
+    with open(importlib.resources.files('cvtk').joinpath('tmpl/torch_.py'), 'r') as infh:
         tmpl = infh.readlines()
 
     if module.lower() != 'cvtk':

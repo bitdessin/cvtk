@@ -1,0 +1,4 @@
+include src/cvtk/tmpl/*.py
+include src/cvtk/tmpl/html/*.html
+
+
