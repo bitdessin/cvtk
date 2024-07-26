@@ -27,7 +27,7 @@ def train(label, train, valid, test, output_weights, batch_size=4, num_workers=8
     plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.txt',
                   os.path.splitext(output_weights)[0] + '.train_stats.png')
     plot_cm(os.path.splitext(output_weights)[0] + '.test_outputs.txt',
-            os.path.splitext(output_weights)[0] + '.test_outputs.png')
+            os.path.splitext(output_weights)[0] + '.test_outputs.cm.png')
 
 
 def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
