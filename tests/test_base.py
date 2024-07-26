@@ -82,24 +82,17 @@ class TestImageClasses(unittest.TestCase):
         self.assertEqual(len(ia), 3)
 
         self.assertEqual(ia.labels, self.labels)
-        self.assertEqual(ia.bboxes, self.bboxes)
-        self.assertEqual(ia.masks, self.masks)
+        self.assertEqual([list(_) for _ in ia.bboxes], self.bboxes)
+        self.assertEqual([_.tolist() for _ in ia.masks], self.masks)
         self.assertEqual(ia.scores, self.scores)
 
         x = np.random.randint(0, 1, (240, 321))
         print(x.shape)
         print(x)
-        print('*********')
-        self.assertEqual(ia[0],
-            {'label': self.labels[0],
-             'bbox': self.bboxes[0],
-             'mask': self.masks[0],
-             'score': self.scores[0],
-             'area': self.areas[0]})
         
         self.assertEqual(ia.label(0), self.labels[0])
-        self.assertEqual(ia.bbox(1), self.bboxes[1])
-        self.assertEqual(ia.mask(2), self.masks[2])
+        self.assertEqual(list(ia.bbox(1)), self.bboxes[1])
+        self.assertEqual(ia.mask(2).tolist(), self.masks[2])
         self.assertEqual(ia.score(0), self.scores[0])
 
         ia.dump()

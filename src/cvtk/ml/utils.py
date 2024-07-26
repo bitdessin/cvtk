@@ -124,6 +124,9 @@ def generate_source(project: str, task: str='cls', module: str='cvtk') -> None:
         task (str): The task type of project. Three types of tasks can be specified ('cls', 'det', 'segm'). The default is 'cls'.
         module (str): Script with importation of cvtk ('cvtk') or not ('torch' or 'mmdet').
     """
+    if module not in ['cvtk', 'vanilla']:
+        raise ValueError('The module should be either `cvtk` or `vanilla`.')
+    
     if task.lower() in ['cls', 'classification']:
         generate_source_cls(project, module)
     elif task.lower() in ['det', 'detection', 'seg', 'segm', 'segmentation']:
@@ -149,6 +152,8 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
         >>> from cvtk.ml import generate_app
         >>> generate_app('./project', 'model.py', 'label.txt', 'model.cfg', 'model.pth')
     """
+    if module not in ['cvtk', 'vanilla']:
+        raise ValueError('The module should be either `cvtk` or `vanilla`.')
 
     if not os.path.exists(project):
         os.makedirs(project)
@@ -164,19 +169,22 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
         shutil.copy2(model, os.path.join(project, model_cfg))
     shutil.copy2(weights, os.path.join(project, model_weights))
 
-    task = __estimate_task_from_source(source)
+    task_type, task_module = __estimate_task_from_source(source)
 
     # FastAPI script
-    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/fastapi_.py'), task)
-    if module != 'cvtk':
-        for i in range(len(tmpl)):
-            if tmpl[i][:9] == 'from cvtk':
-                if task == 'cls':
-                    tmpl[i] = f'from {coremodule} import CLSCORE as MODULECORE'
-                elif task == 'det':
-                    tmpl[i] = f'from {coremodule} import MMDETCORE as MODULECORE'
-                else:
-                    raise ValueError('Unsupport Type.')
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/fastapi_.py'), task_type)
+    if module == 'vanilla':
+        if task_module == 'vanilla':
+            for i in range(len(tmpl)):
+                if tmpl[i][:9] == 'from cvtk':
+                    if task_type == 'cls':
+                        tmpl[i] = f'from {coremodule} import CLSCORE as MODULECORE'
+                    elif task_type == 'det':
+                        tmpl[i] = f'from {coremodule} import MMDETCORE as MODULECORE'
+                    else:
+                        raise ValueError('Unsupport Type.')
+        else:
+            print('The CLSCORE or MMDETCORE class definition is not found in the source code. The script will be generated with importation of cvtk.')
     tmpl = ''.join(tmpl)
     tmpl = tmpl.replace('__DATALABEL__', data_label)
     tmpl = tmpl.replace('__MODELCFG__', model_cfg)
@@ -187,7 +195,7 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
     # HTML template
     if not os.path.exists(os.path.join(project, 'templates')):
         os.makedirs(os.path.join(project, 'templates'))
-    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/html/fastapi_.html'), task)
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/html/fastapi_.html'), task_type)
     with open(os.path.join(project, 'templates', 'index.html'), 'w') as fh:
         fh.write(''.join(tmpl))
     
@@ -240,13 +248,24 @@ def __estimate_task_from_source(source):
                 task_['MMDETCORE']['import'] += 1
             elif 'MMDETCORE(' in codeline:
                 task_['MMDETCORE']['call'] += 1
-    is_task_cls = ((task_['CLSCORE']['classdef'] > 0) or (task_['CLSCORE']['import'] > 0)) and (task_['CLSCORE']['call'] > 0)
-    is_task_det = ((task_['MMDETCORE']['classdef'] > 0) or (task_['MMDETCORE']['import'] > 0)) and (task_['MMDETCORE']['call'] > 0)
-    if is_task_cls and not is_task_det:
+    is_cls_cvtk = (task_['CLSCORE']['import'] > 0) and (task_['CLSCORE']['call'] > 0)
+    is_cls_vanilla = (task_['CLSCORE']['classdef'] > 0) and (task_['CLSCORE']['call'] > 0)
+    is_cls = is_cls_cvtk or is_cls_vanilla
+    is_det_cvtk = (task_['MMDETCORE']['import'] > 0) and (task_['MMDETCORE']['call'] > 0)
+    is_det_vanilla = (task_['MMDETCORE']['classdef'] > 0) and (task_['MMDETCORE']['call'] > 0)
+    is_det = is_det_cvtk or is_det_vanilla
+
+    if is_cls and (not is_det):
         task = 'cls'
-    elif not is_task_cls and is_task_det:
+    elif (not is_cls) and is_det:
         task = 'det'
     else:
         raise ValueError('The task type cannot be determined from the source code. Make sure your source code contains CLSCORE or MMDETCORE class definition or importation, and call.')
+    if is_cls_cvtk or is_det_cvtk:
+        source = 'cvtk'
+    elif is_cls_vanilla or is_det_vanilla:
+        source = 'vanilla'
+    else:
+        raise ValueError('The source code cannot be determined from the source code. Make sure your source code contains importation of cvtk.ml.torchutils or cvtk.ml.mmdetutils.')
 
-    return task
+    return task, source

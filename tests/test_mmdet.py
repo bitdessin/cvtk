@@ -1,7 +1,5 @@
 import os
-import subprocess
 import cvtk.ml.utils
-import cvtk.ml.mmdet
 import unittest
 import testutils
 
@@ -49,11 +47,11 @@ class TestMMDet(unittest.TestCase):
 
 
     def test_det_mmdet_cmd(self):
-        self.__run_proc('det', 'mmdet', 'cmd')
+        self.__run_proc('det', 'vanilla', 'cmd')
 
 
     def test_det_mmdet_source(self):
-        self.__run_proc('det', 'mmdet', 'source')
+        self.__run_proc('det', 'vanilla', 'source')
 
 
     def test_segm_cvtk_source(self):
@@ -61,7 +59,7 @@ class TestMMDet(unittest.TestCase):
         
 
     def test_segm_mmdet_cmd(self):
-        self.__run_proc('segm', 'mmdet', 'cmd')
+        self.__run_proc('segm', 'vanilla', 'cmd')
 
 
 

@@ -1,7 +1,5 @@
 import os
-import subprocess
 import cvtk.ml.utils
-import cvtk.ml.torch
 import unittest
 import testutils
 
@@ -44,7 +42,7 @@ class TestTorch(unittest.TestCase):
 
 
     def test_torch_source(self):
-        self.__run_proc('torch', 'source')
+        self.__run_proc('vanilla', 'source')
 
 
     def test_cvtk_cmd(self):
@@ -52,7 +50,7 @@ class TestTorch(unittest.TestCase):
 
 
     def test_torch_cmd(self):
-        self.__run_proc('torch', 'cmd')    
+        self.__run_proc('vanilla', 'cmd')    
     
 
 if __name__ == '__main__':

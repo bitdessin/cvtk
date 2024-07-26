@@ -1,27 +1,30 @@
 import os
 import json
+import random
 from .base import JsonComplexEncoder
-try:
-    import pycocotools.coco
-    import pycocotools.cocoeval
-except ImportError as e:
-    raise ImportError('Unable to import pycocotools. '
-                      'Install pycocotools package to enable this feature.') from e
 
 
+def merge(inputs: str|list[str], output: str|None=None, ensure_ascii: bool=False, indet: int|None=4) -> dict:
+    """Merge multiple COCO annotation files into one file.
 
-def merge(inputs: str|list[str], output: str=None, indet=4) -> dict:
-    """Merge multiple COCO annotation files into one
+    The function will merge the images, annotations, and categories
+    from multiple COCO annotation files into one file.
+    The IDs of the images, annotations, and categories will be re-indexed.
+
 
     Args:
-        inputs: list: List of input COCO annotation files.
-        output: str: Output merged annotation file.
+        inputs (list[str]): List of file paths to COCO annotation files to be merged.
+        output (str, None): The merged COCO annotation data will be saved to the file if the file path is given.
+        ensure_ascii (bool): If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
+        indet (int, None): If a non-negative integer is provided,
+            the output JSON data will be formatted with the given indentation.
 
     Returns:
         dict: Merged COCO annotation data.
     
     Examples:
-        >>> merge(['annotations1.json', 'annotations2.json', 'annotations3.json'], 'merged_annotations.json')
+        >>> merged_coco = merge(['annotations1.json', 'annotations2.json', 'annotations3.json'],
+                                'merged_annotations.json')
     """
 
     merged_coco = {
@@ -65,29 +68,44 @@ def merge(inputs: str|list[str], output: str=None, indet=4) -> dict:
     
     if output:
         with open(output, 'w') as f:
-            json.dump(merged_coco, f, cls=JsonComplexEncoder, ensure_ascii=False, indent=indet)
+            json.dump(merged_coco, f, cls=JsonComplexEncoder, ensure_ascii=ensure_ascii, indent=indet)
     
     return merged_coco
 
 
 
 
-def calc_stats(gt: str|dict, pred: str|dict, image_by: str='id', category_by='id', iouType: str='bbox', metrics_labels=None) -> list:
-    """Calculate mean average precision (mAP) using COCO API
+def calc_stats(gt: str|dict, pred: str|dict, image_by: str='id', category_by='id', iouType: str='bbox', metrics_labels=None) -> dict:
+    """Calculate prediction performance metrics for object detection and instance segmentation tasks
+
+    The function calculates the prediction performance metrics for object detection and instance segmentation tasks,
+    using the COCO evaluation API from pycocotools.
+    The ground truth and predicted annotations can be provided as file paths or dict objects of COCO annotations.
+    The image IDs between the ground truth and prediction can be different;
+    the function provides an option to map them by filepath or filename by specifying the `image_by` parameter.
+    In addition, the category IDs between the ground truth and prediction can be different;
+    the function provides an option to map them by category name by specifying the `category_by` parameter.
     
     Args:
-        gt: str | dict: Path to ground truth annotation file or dict object of ground truth annotation.
-        pred: str | dict: Path to prediction file or dict object of prediction result.
-        map_image: str: Image mapping between gt and pred.
-        map_cate: str
-        iouType: str: Evaluation type. Default is 'bbox'.
-
+        gt (str|dict): Annotations of ground truth. It can be a path to a COCO annotation file or a dict object of COCO annotation.
+        pred (str|dict): The predicted annotations. It can be a path to a COCO annotation file or a dict object of COCO annotation.
+        image_by (str): The attribute to map image ID between ground truth and prediction. Default is 'id'.
+        category_by (str): The attribute to map category ID between ground truth and prediction. Default is 'id'.
+        iouType (str): The type of IoU calculation. Default is 'bbox', but 'segm' is also available.
+        
     Returns:
-        list of float: List of mAP statistics.
+        dict: A dictionary containing the prediction performance metrics.
 
     Examples:
         >>> calculate_map('ground_truth.json', 'predictions.json')
     """
+    try:
+        import pycocotools.coco
+        import pycocotools.cocoeval
+    except ImportError as e:
+        raise ImportError('Unable to import pycocotools module. '
+                          'Install pycocotools module to enable calculation of prediction performance.') from e
+
     
     if metrics_labels is None:
         metrics_labels = ['AP@[0.50:0.95|all|100]',
@@ -229,7 +247,6 @@ def split(input_file: str, output_dir: str, split_ratios: list[float]=[0.8, 0.1,
         data = json.load(f)
     
     if shuffle:
-        import random
         random.shuffle(data['images'])
     
     split_indices = [0] + [int(len(data['images']) * r) for r in split_ratios]
