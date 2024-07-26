@@ -1,6 +1,6 @@
 import os
 from cvtk.ml.data import DataLabel
-from cvtk.ml.torch import DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm
+from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm
 
 
 def train(label, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=10):

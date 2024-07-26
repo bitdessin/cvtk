@@ -1,7 +1,7 @@
 import os
 import json
 from cvtk.ml.data import DataLabel
-from cvtk.ml.mmdet import DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines, coco
+from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines, coco
 
 
 def train(label, train, valid, test, output_weights, batch_size=2, num_workers=8, epoch=10):

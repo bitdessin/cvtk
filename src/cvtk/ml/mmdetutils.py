@@ -901,7 +901,7 @@ def __generate_source(script_fpath, task, module='cvtk'):
             {'cvtk': [JsonComplexEncoder, ImageAnnotation, Image]},
             {'cvtk.coco': [calc_stats]},
             {'cvtk.ml.data': [DataLabel]},
-            {'cvtk.ml.mmdet': [DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines, coco]}
+            {'cvtk.ml.mmdetutils': [DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines, coco]}
         ]
         tmpl = __insert_imports(tmpl, __get_imports(__file__))
         tmpl = __extend_cvtk_imports(tmpl, cvtk_modules)

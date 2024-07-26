@@ -41,8 +41,8 @@ def main():
 
     parser_train = subparsers.add_parser('create')
     parser_train.add_argument('--script', type=str, required=True)
-    parser_train.add_argument('--task', type=str, default='cls')
-    parser_train.add_argument('--module', type=str, default='cvtk')
+    parser_train.add_argument('--task', type=str, choices=['cls', 'det', 'segm'], default='cls')
+    parser_train.add_argument('--module', type=str, choices=['cvtk', 'torch', 'mmdet'], default='cvtk')
     parser_train.set_defaults(func=create)
 
     parser_train = subparsers.add_parser('app')
@@ -51,7 +51,7 @@ def main():
     parser_train.add_argument('--label', type=str, required=True)
     parser_train.add_argument('--model', type=str, default=True)
     parser_train.add_argument('--weights', type=str, required=True)
-    parser_train.add_argument('--module', type=str, default='cvtk')
+    parser_train.add_argument('--module', type=str, choices=['cvtk', 'fastapi'], default='cvtk')
     parser_train.set_defaults(func=app)
 
     parser_split_text = subparsers.add_parser('split')

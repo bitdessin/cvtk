@@ -39,7 +39,7 @@ def DataTransform(shape, is_train=False):
         A torchvision.transforms.Compose instance containing the transform pipeline. 
    
     Examples:
-        >>> from cvtk.ml.torch import DataTransform
+        >>> from cvtk.ml.torchutils import DataTransform
         >>> 
         >>> transform_train = DataTransform(224, is_train=True)
         >>> print(transform_train)
@@ -94,7 +94,7 @@ class Dataset(torch.utils.data.Dataset):
 
     Examples:
         >>> from cvtk.ml import DataLabel
-        >>> from cvtk.ml.torch import Dataset, DataTransform
+        >>> from cvtk.ml.torchutils import Dataset, DataTransform
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
         >>> 
@@ -209,7 +209,7 @@ def DataLoader(dataset, batch_size=32, num_workers=4, shuffle=False):
     This function simply creates a torch.utils.data.DataLoader instance to manage data for training and inference.
 
     Args:
-        dataset (cvtk.ml.torch.DataSet): A dataset for training and inference.
+        dataset (cvtk.ml.torchutils.DataSet): A dataset for training and inference.
         batch_size (int): A batch size for training and inference.
         num_workers (int): The number of workers for data loading.
         shuffle (bool): If True, the data is shuffled at every epoch.
@@ -220,7 +220,7 @@ def DataLoader(dataset, batch_size=32, num_workers=4, shuffle=False):
     Examples:
         >>> from cvtk.ml
         >>> from cvtk.ml import DataLabel
-        >>> from cvtk.ml.torch import DataTransform, Dataset, DataLoader
+        >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader
         >>>
         >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
         >>> transform = DataTransform(224, is_train=True)
@@ -257,7 +257,7 @@ class CLSCORE():
     Examples:
         >>> import torch
         >>> import torchvision
-        >>> from cvtk.ml.torch import CLSCORE
+        >>> from cvtk.ml.torchutils import CLSCORE
         >>>
         >>> datalabel = ['leaf', 'flower', 'root']
         >>> m = CLSCORE(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
@@ -377,7 +377,7 @@ class CLSCORE():
         Examples:
             >>> import torch
             >>> from cvtk.ml import DataLabel
-            >>> from cvtk.ml.torch import DataTransform, Dataset, DataLoader, CLSCORE
+            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, CLSCORE
             >>> 
             >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
             >>> 
@@ -525,7 +525,7 @@ class CLSCORE():
         Examples:
             >>> import torch
             >>> from cvtk.ml import DataLabel
-            >>> from cvtk.ml.torch import DataTransform, Dataset, DataLoader, CLSCORE
+            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, CLSCORE
             >>> 
             >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
             >>> model = CLSCORE(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
@@ -595,7 +595,7 @@ class CLSCORE():
         Examples:
             >>> import torch
             >>> from cvtk.ml import DataLabel
-            >>> from cvtk.ml.torch import DataTransform, Dataset, DataLoader, CLSCORE
+            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, CLSCORE
             >>> 
             >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
             >>>
@@ -794,7 +794,7 @@ def __generate_source(script_fpath, module='cvtk'):
     if module.lower() != 'cvtk':
         cvtk_modules = [
             {'cvtk.ml.data': [DataLabel]},
-            {'cvtk.ml.torch': [DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm]}
+            {'cvtk.ml.torchutils': [DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm]}
         ]
         tmpl = __insert_imports(tmpl, __get_imports(__file__))
         tmpl = __extend_cvtk_imports(tmpl, cvtk_modules)

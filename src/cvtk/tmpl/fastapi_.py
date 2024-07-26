@@ -9,10 +9,10 @@ from fastapi.staticfiles import StaticFiles
 import numpy as np
 import skimage.measure
 #%CVTK%# IF TASK=cls
-from cvtk.ml.torch import CLSCORE as MODULECORE
+from cvtk.ml.torchutils import CLSCORE as MODULECORE
 #%CVTK%# ENDIF
 #%CVTK%# IF TASK=det,segm
-from cvtk.ml.mmdet import MMDETCORE as MODULECORE
+from cvtk.ml.mmdetutils import MMDETCORE as MODULECORE
 #%CVTK%# ENDIF
 
 # application variables

@@ -3,24 +3,32 @@ import shutil
 import importlib
 import random
 import re
-from .torch import __generate_source as generate_source_cls
-from .mmdet import __generate_source as generate_source_det
+from .torchutils import __generate_source as generate_source_cls
+from .mmdetutils import __generate_source as generate_source_det
 
 
-def split_dataset(data, label=None, ratios=[0.8, 0.1, 0.1], balanced=True, shuffle=True, random_seed=None):
-    """Split a dataset into train, validation, and test sets
+def split_dataset(data: str|list,
+                  label: list|None=None,
+                  ratios: list[float]=[0.8, 0.1, 0.1],
+                  balanced: bool=True,
+                  shuffle: bool=True,
+                  random_seed: int|None=None):
+    """Split a dataset into multiple subsets with the given ratios
 
-    Split a dataset into several subsets with the given ratios.
+    Split a dataset into multiple subsets with the given ratios.
     
     
     Args:
         data (str|list): The dataset to split. The input can be a list of data (e.g., images)
-            or a path to a text file.
-        labels (list): The labels corresponding to the `data`.
+            or a path to a text file. If list is given, each element of the list is treated as a sample.
+        labels (list): The labels corresponding to the `data`. Spliting with a balanced class distribution
+            is only supported when `labels` is given. If `data` is a path to a text file,
+            the function will try to load values in the second column as labels
+            corresponding to the image data written in first column.
         ratios (list): The ratios to split the dataset. The sum of the ratios should be 1.
         balanced (bool): Split the dataset with a balanced class distribution if `label` is given.
         shuffle (bool): Shuffle the dataset before splitting.
-        random_seed (int): Random seed for shuffling the dataset.
+        random_seed (int|none): Random seed for shuffling the dataset.
 
     Returns:
         A list of the split datasets. The length of the list is the same as the length of `ratios`.
@@ -97,35 +105,34 @@ def split_dataset(data, label=None, ratios=[0.8, 0.1, 0.1], balanced=True, shuff
 
 
 
-
-
-def generate_source(project, task='classification', module='cvtk'):
+def generate_source(project: str, task: str='cls', module: str='cvtk') -> None:
     """Generate source code for training and inference of a classification model using PyTorch
 
-    This function generates a Python script for training and inference of a classification model using PyTorch.
+    This function generates a Python script for training and inference of a model
+    using PyTorch (for classification task) or MMDetection (for object detection and instance segmentation tasks).
     Two types of scripts can be generated based on the `module` argument:
     one with importation of cvtk and the other without importation of cvtk.
     The script with importation of cvtk keeps the code simple and easy to understand,
     since most complex functions are implemented in cvtk.
-    It designed for users who are beginning to learn object classification with PyTorch.
+    It designed for users who are beginning to learn deep learning for image tasks with PyTorch or MMDetection.
     On the other hand, the script without cvtk import is longer and more exmplex,
     but it can be more flexibly customized and further developed, 
     since all functions is implemented directly in torch and torchvision.
 
     Args:
         project (str): A file path to save the script.
-        task (str): The task type of project. Only 'classification' is supported in the current version.
-        module (str): Script with importation of cvtk ('cvtk') or not ('torch').
+        task (str): The task type of project. Three types of tasks can be specified ('cls', 'det', 'segm'). The default is 'cls'.
+        module (str): Script with importation of cvtk ('cvtk') or not ('torch' or 'mmdet').
     """
     if task.lower() in ['cls', 'classification']:
         generate_source_cls(project, module)
-    elif task.lower() in ['det', 'detection', 'seg', 'segm', 'segmentation', 'mmdet', 'mmdetection']:
+    elif task.lower() in ['det', 'detection', 'seg', 'segm', 'segmentation']:
         generate_source_det(project, task, module)
     else:
-        raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`seg`) tasks.')
+        raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`segm`) tasks.')
 
 
-def generate_app(project, source, label, model, weights, module='cvtk'):
+def generate_app(project: str, source: str, label: str, model: str, weights: str, module: str='cvtk'):
     """Generate a FastAPI application for inference of a classification or detection model
     
     This function generates a FastAPI application for inference of a classification or detection model.
@@ -136,12 +143,11 @@ def generate_app(project, source, label, model, weights, module='cvtk'):
         label (str): The label file of the dataset.
         model (str): The configuration file of the model.
         weights (str): The weights file of the model.
-        module (str): The module name of the model. The default is 'cvtk'.
+        module (str): Script with importation of cvtk ('cvtk') or not ('fastapi').
 
     Examples:
         >>> from cvtk.ml import generate_app
         >>> generate_app('./project', 'model.py', 'label.txt', 'model.cfg', 'model.pth')
-    
     """
 
     if not os.path.exists(project):
@@ -189,7 +195,6 @@ def generate_app(project, source, label, model, weights, module='cvtk'):
     
 def __generate_app_html_tmpl(tmpl_fpath, task):
     tmpl = []
-
     write_code = True
     with open(tmpl_fpath, 'r') as infh:
         for codeline in infh:
@@ -209,7 +214,6 @@ def __generate_app_html_tmpl(tmpl_fpath, task):
 
             if write_code:
                 tmpl.append(codeline)
-
     return tmpl
 
 
@@ -222,24 +226,22 @@ def __estimate_task_from_source(source):
         for codeline in infh:
             if 'class CLSCORE' in codeline:
                 task_['CLSCORE']['classdef'] += 1
-            elif 'import cvtk.ml.torch' in codeline:
+            elif 'import cvtk.ml.torchuitls' in codeline:
                 task_['CLSCORE']['import'] += 1
-            elif 'from cvtk.ml.torch import' in codeline and 'CLSCORE' in codeline:
+            elif 'from cvtk.ml.torchutils import' in codeline and 'CLSCORE' in codeline:
                 task_['CLSCORE']['import'] += 1
             elif 'CLSCORE(' in codeline:
                 task_['CLSCORE']['call'] += 1
             elif 'class MMDETCORE' in codeline:
                 task_['MMDETCORE']['classdef'] += 1
-            elif 'import cvtk.ml.mmdet' in codeline:
+            elif 'import cvtk.ml.mmdetutils' in codeline:
                 task_['MMDETCORE']['import'] += 1
-            elif 'from cvtk.ml.mmdet import' in codeline and 'MMDETCORE' in codeline:
+            elif 'from cvtk.ml.mmdetutils import' in codeline and 'MMDETCORE' in codeline:
                 task_['MMDETCORE']['import'] += 1
             elif 'MMDETCORE(' in codeline:
-                task_['MMDETCORE']['call'] += 1              
-    
+                task_['MMDETCORE']['call'] += 1
     is_task_cls = ((task_['CLSCORE']['classdef'] > 0) or (task_['CLSCORE']['import'] > 0)) and (task_['CLSCORE']['call'] > 0)
     is_task_det = ((task_['MMDETCORE']['classdef'] > 0) or (task_['MMDETCORE']['import'] > 0)) and (task_['MMDETCORE']['call'] > 0)
-
     if is_task_cls and not is_task_det:
         task = 'cls'
     elif not is_task_cls and is_task_det:
