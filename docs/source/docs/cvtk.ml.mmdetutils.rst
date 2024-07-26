@@ -1,8 +1,8 @@
-cvtk.ml.mmdet
-#############
+cvtk.ml.mmdetutils
+##################
 
 
-.. automodule:: cvtk.ml.mmdet
+.. automodule:: cvtk.ml.mmdetutils
     :noindex:
     :members:
     :no-undoc-members:
