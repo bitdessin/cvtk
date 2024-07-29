@@ -22,80 +22,8 @@ import skimage.measure
 import skimage.draw
 import PIL.Image
 import PIL.ImageOps
-from .base import __JsonEncoder
+from .base import JsonComplexEncoder
 
-
-def imread(source, exif_transpose=True):
-    im = None
-
-    if isinstance(source, str):
-        if re.match(r'https?://', source):
-            try:
-                req = requests.get(source, timeout=30)
-                req.raise_for_status()
-                return imread(req.content)
-            except requests.RequestException as e:
-                raise ValueError('Image Not Found.', source) from e
-            
-        elif source.startswith('data:image'):
-            return imread(base64.b64decode(source.split(',')[1]))
-
-        else:
-            return imread(pathlib.Path(source))
-    
-    elif isinstance(source, PIL.Image.Image):
-        im = source
-    
-    elif isinstance(source, pathlib.Path):
-        im = PIL.Image.open(source)
-        if exif_transpose:
-            im = PIL.ImageOps.exif_transpose(im)
-    
-    elif isinstance(source, (bytes, bytearray)):
-        source = np.asarray(bytearray(source), dtype=np.uint8)
-        im = PIL.Image.open(io.BytesIO(source))
-        if exif_transpose:
-            im = PIL.ImageOps.exif_transpose(im)
-
-    elif isinstance(source, np.ndarray):
-        im = Image.fromarray(source)
-    
-    else:
-        raise ValueError(f'Unable open image file due to unknown type of "{source}".')
-    
-    if im is None:
-        raise ValueError(f'Unable open image file f{source}. Check if the file exists or the url is correct.')
-
-    return im
-    
-
-class Image:
-    def __init__(self, source, annotation, annotation_format='auto'):
-
-        self.file_path = source
-        self.file_name = os.path.basename(source) if os.path.isfile(source) else None
-        self.image = self.__imread(source)
-        
-
-        self.image, self.exif_orientation = self.__imread(image_path)
-        self.class2rgb, self.rgb2class = self.__set_colormapping_dict(class2rgb, rgb2class)
-        self.regions = self.__set_regions(annotation, annotation_format)
-
-
-
-    def __imread(self, image_path):
-
-
-
-
-
-
-        image = PIL.Image.open(image_path)
-        exif_o = None
-        if hasattr(image, '_getexif') and image._getexif() is not None:
-            exif_o = image._getexif().get(0x112, 1)
-        return np.array(PIL.ImageOps.exif_transpose(image)), exif_o
-    
 
 
 class ImageAnnotation:

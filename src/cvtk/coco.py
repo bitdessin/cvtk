@@ -1,22 +1,22 @@
 import os
+import copy
 import json
 import random
 from .base import JsonComplexEncoder
 
 
-def merge(inputs: str|list[str], output: str|None=None, ensure_ascii: bool=False, indet: int|None=4) -> dict:
+def merge(input: str|list[str], output: str|None=None, ensure_ascii: bool=False, indent: int|None=4) -> dict:
     """Merge multiple COCO annotation files into one file.
 
     The function will merge the images, annotations, and categories
     from multiple COCO annotation files into one file.
     The IDs of the images, annotations, and categories will be re-indexed.
 
-
     Args:
         inputs (list[str]): List of file paths to COCO annotation files to be merged.
         output (str, None): The merged COCO annotation data will be saved to the file if the file path is given.
         ensure_ascii (bool): If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
-        indet (int, None): If a non-negative integer is provided,
+        indent (int, None): If a non-negative integer is provided,
             the output JSON data will be formatted with the given indentation.
 
     Returns:
@@ -37,40 +37,167 @@ def merge(inputs: str|list[str], output: str|None=None, ensure_ascii: bool=False
     category_id = 1
     annotation_id = 1
     
-    for input_file in inputs:
+    for input_file in input:
         image_idmap = {}
         category_idmap = {}
 
-        with open(input_file, 'r') as f:
-            data = json.load(f)
+        if isinstance(input_file, str):
+            with open(input_file, 'r') as f:
+                data = json.load(f)
+        else:
+            data = copy.deepcopy(input_file)
             
-            for category in data['categories']:
-                if category['name'] not in [c['name'] for c in merged_coco['categories']]:
-                    category_idmap[category['id']] = category_id
-                    category['id'] = category_id
-                    merged_coco['categories'].append(category.copy())
-                    category_id += 1
-                else:
-                    category_idmap[category['id']] = [c['id'] for c in merged_coco['categories'] if c['name'] == category['name']][0]
+        for category in data['categories']:
+            if category['name'] not in [c['name'] for c in merged_coco['categories']]:
+                category_idmap[category['id']] = category_id
+                category['id'] = category_id
+                merged_coco['categories'].append(category.copy())
+                category_id += 1
+            else:
+                category_idmap[category['id']] = [c['id'] for c in merged_coco['categories'] if c['name'] == category['name']][0]
             
-            for image in data['images']:
-                image_idmap[image['id']] = image_id
-                image['id'] = image_id
-                merged_coco['images'].append(image.copy())
-                image_id += 1
+        for image in data['images']:
+            image_idmap[image['id']] = image_id
+            image['id'] = image_id
+            merged_coco['images'].append(image.copy())
+            image_id += 1
             
-            for annotation in data['annotations']:
-                annotation['id'] = annotation_id
-                annotation['image_id'] = image_idmap[annotation['image_id']]
-                annotation['category_id'] = category_idmap[annotation['category_id']]
-                merged_coco['annotations'].append(annotation)
-                annotation_id += 1
+        for annotation in data['annotations']:
+            annotation['id'] = annotation_id
+            annotation['image_id'] = image_idmap[annotation['image_id']]
+            annotation['category_id'] = category_idmap[annotation['category_id']]
+            merged_coco['annotations'].append(annotation)
+            annotation_id += 1
     
-    if output:
+    if output is not None:
         with open(output, 'w') as f:
-            json.dump(merged_coco, f, cls=JsonComplexEncoder, ensure_ascii=ensure_ascii, indent=indet)
+            json.dump(merged_coco, f, cls=JsonComplexEncoder, ensure_ascii=ensure_ascii, indent=indent)
     
     return merged_coco
+
+
+
+
+def split(input: str|dict,
+          output: str|None=None,
+          ratios: list[float]|tuple[float]=[0.8, 0.1, 0.1],
+          shuffle: bool=True,
+          reindex: bool=True,
+          random_seed: int|None=None,
+          ensure_ascii=False, indent=4) -> list[dict]:
+    """Split a COCO annotation file into several subsets
+
+    The function splits the COCO annotation data into several subsets based on the given ratios.
+    The images will be shuffled before splitting if the `shuffle` parameter is set to True.
+
+    Args:
+        input (str|dict): The COCO annotation data to be split.
+        output (str, None): The split COCO annotation data will be saved to the file if the file path.
+            The output file name will be appended with the index of the split subset.
+        ratios (list[float]): Ratios of the train, validation, and test sets.
+        reindex (bool): If True, the IDs of the images, categories, and annotations will be re-indexed.
+        shuffle (bool): If True, the images will be shuffled before splitting.
+        random_seed (int, None): The random seed for shuffling the images.
+        ensure_ascii (bool): If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
+        indent (int, None): If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
+
+    Examples:
+        >>> subsets = split('annotations.json', [0.8, 0.1, 0.1])
+        >>> len(subsets)
+        3
+        >>> subsets[0]['images']
+        [{'id': 1, 'file_name': 'image1.jpg', 'height': 480, 'width': 640}, ...]
+    """
+    if isinstance(input, str):
+        with open(input, 'r') as f:
+            cocodata = json.load(f)
+    else:
+        cocodata = copy.deepcopy(input)
+    
+    if abs(1.0 - sum(ratios)) > 1e-10:
+        raise ValueError('The sum of `ratios` should be 1.')
+    ratios_cumsum = [0]
+    for r in ratios:
+        ratios_cumsum.append(r + ratios_cumsum[-1])
+    ratios_cumsum[-1] = 1.0
+
+    if shuffle:
+        if random_seed is not None:
+            random.seed(random_seed)
+        random.shuffle(cocodata['images'])
+
+    image_subsets = []
+    for i in range(len(ratios)):
+        image_subsets.append([])
+        n_samples = len(cocodata['images'])
+        n_splits = [int(n_samples * r) for r in ratios_cumsum]
+        image_subsets[i] = cocodata['images'][n_splits[i]:n_splits[i + 1]]
+    
+    data_subsets = []
+    for i in range(len(image_subsets)):
+        data_subset = {
+            'images': image_subsets[i],
+            'annotations': [ann for ann in cocodata['annotations'] if ann['image_id'] in [im['id'] for im in image_subsets[i]]],
+            'categories': cocodata['categories']
+        }
+        if reindex:
+            data_subset = globals()['reindex'](data_subset, output=None)
+        data_subsets.append(data_subset)
+    
+    if output:
+        for i in range(len(data_subsets)):
+            with open(f'{output}.{i}', 'w') as fh:
+                json.dump(data_subsets[i], fh, cls=JsonComplexEncoder, ensure_ascii=ensure_ascii, indent=indent)
+
+    return data_subsets
+
+
+
+
+def reindex(input: str|dict,
+            output: str|None=None,
+            image_id=True,
+            category_id=True,
+            ensure_ascii=False, indent=4) -> dict:
+    """Re-index the IDs of images, categories, and annotations in a COCO annotation file.
+
+    Args:
+        input (str|dict): The COCO annotation data to be re-indexed.
+        output (str, None): The re-indexed COCO annotation data will be saved to the file if the file path is given.
+        image_id (bool): If True, the image IDs will be re-indexed.
+        category_id (bool): If True, the category IDs will be re-indexed.
+        ensure_ascii (bool): If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
+        indent (int, None): If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
+    
+    """
+    if isinstance(input, str):
+        with open(input, 'r') as f:
+            cocodata = json.load(f)
+    else:
+        cocodata = copy.deepcopy(input)
+    
+    if image_id:
+        image_idmap = {}
+        for i, image in enumerate(cocodata['images']):
+            image_idmap[image['id']] = i + 1
+            image['id'] = i + 1
+        for ann in cocodata['annotations']:
+            ann['image_id'] = image_idmap[ann['image_id']]
+
+    if category_id:
+        category_idmap = {}
+        for i, category in enumerate(cocodata['categories']):
+            category_idmap[category['id']] = i + 1
+            category['id'] = i + 1
+        for ann in cocodata['annotations']:
+            ann['category_id'] = category_idmap[ann['category_id']]
+
+    if output is not None:
+        with open(output, 'w') as f:
+            json.dump(cocodata, f, cls=JsonComplexEncoder, ensure_ascii=ensure_ascii, indent=indent)
+    
+    return cocodata
+
 
 
 
@@ -224,46 +351,3 @@ def calc_stats(gt: str|dict, pred: str|dict, image_by: str='id', category_by='id
     return stats_dict
     
 
-
-
-#TODO check
-def split(input_file: str, output_dir: str, split_ratios: list[float]=[0.8, 0.1, 0.1], shuffle: bool=True) -> None:
-    """Split a COCO annotation file into train, validation, and test sets
-
-    Args:
-        input_file: str: Path to the input COCO annotation file.
-        output_dir: str: Path to the output directory.
-        split_ratios: list: List of split ratios. Default is [0.8, 0.1, 0.1].
-        shuffle: bool: Shuffle the dataset before splitting. Default is True.
-
-    Returns:
-        None
-
-    Examples:
-        >>> split('annotations.json', 'output_dir', [0.8, 0.1, 0.1])
-    """
-
-    with open(input_file, 'r') as f:
-        data = json.load(f)
-    
-    if shuffle:
-        random.shuffle(data['images'])
-    
-    split_indices = [0] + [int(len(data['images']) * r) for r in split_ratios]
-    split_indices[-1] = len(data['images'])
-    
-    for i, split_ratio in enumerate(split_ratios):
-        split_data = {
-            'images': data['images'][split_indices[i]:split_indices[i+1]],
-            'annotations': [ann for ann in data['annotations'] if ann['image_id'] in [im['id'] for im in split_data['images']]],
-            'categories': data['categories']
-        }
-        
-        with open(output_dir + '/split_{}.json'.format(i), 'w') as f:
-            json.dump(split_data, f, cls=JsonComplexEncoder, ensure_ascii=False, indent=4)
-    
-    return
-
-
-def reindex(input_file, ouput_file, classes):
-    pass
