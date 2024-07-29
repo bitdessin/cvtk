@@ -2,7 +2,7 @@ cvtk.ml.torchutils
 ##################
 
 
-.. automodule:: cvtk.ml.torch.utils
+.. automodule:: cvtk.ml.torchutils
     :noindex:
     :members:
     :no-undoc-members:

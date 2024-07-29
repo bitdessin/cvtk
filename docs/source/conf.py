@@ -73,5 +73,5 @@ napoleon_use_keyword = True
 add_function_parentheses = False
 
 def setup(app):
-    app.add_css_file('style.css')
+    app.add_css_file('std.css')
 
