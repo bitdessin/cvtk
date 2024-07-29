@@ -888,7 +888,7 @@ def draw_outlines(image_fpath, output_fpath, outlines, cutoff=0.5, col=None):
 
 
 
-def __generate_source(script_fpath, task, module='cvtk'):
+def __generate_source(script_fpath, task, vanilla=False):
     if not script_fpath.endswith('.py'):
         script_fpath += '.py'
 
@@ -896,7 +896,7 @@ def __generate_source(script_fpath, task, module='cvtk'):
     with open(importlib.resources.files('cvtk').joinpath('tmpl/mmdet_.py'), 'r') as infh:
         tmpl = infh.readlines()
 
-    if module.lower() != 'cvtk':
+    if vanilla:
         cvtk_modules = [
             {'cvtk': [JsonComplexEncoder, ImageAnnotation, Image]},
             {'cvtk.coco': [calc_stats]},

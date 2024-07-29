@@ -783,7 +783,7 @@ def plot_cm(test_outputs, output=None, title='Confusion Matrix', xlab='Predicted
 
 
 
-def __generate_source(script_fpath, module='cvtk'):
+def __generate_source(script_fpath, vanilla=False):
     if not script_fpath.endswith('.py'):
         script_fpath += '.py'
 
@@ -791,7 +791,7 @@ def __generate_source(script_fpath, module='cvtk'):
     with open(importlib.resources.files('cvtk').joinpath('tmpl/torch_.py'), 'r') as infh:
         tmpl = infh.readlines()
 
-    if module.lower() != 'cvtk':
+    if vanilla:
         cvtk_modules = [
             {'cvtk.ml.data': [DataLabel]},
             {'cvtk.ml.torchutils': [DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm]}

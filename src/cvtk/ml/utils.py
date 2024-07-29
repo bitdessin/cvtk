@@ -12,7 +12,7 @@ def split_dataset(data: str|list,
                   ratios: list[float]=[0.8, 0.1, 0.1],
                   balanced: bool=True,
                   shuffle: bool=True,
-                  random_seed: int|None=None):
+                  random_seed: int|None=None) -> list|tuple[list, list]:
     """Split a dataset into multiple subsets with the given ratios
 
     Split a dataset into multiple subsets with the given ratios.
@@ -63,7 +63,7 @@ def split_dataset(data: str|list,
     ratios_cumsum = [0]
     for r in ratios:
         ratios_cumsum.append(r + ratios_cumsum[-1])
-    ratios_cumsum[-1] = 1
+    ratios_cumsum[-1] = 1.0
     
     dclasses = {}
     if label is not None:
@@ -105,12 +105,12 @@ def split_dataset(data: str|list,
 
 
 
-def generate_source(project: str, task: str='cls', module: str='cvtk') -> None:
+def generate_source(project: str, task: str='cls', vanilla=False) -> None:
     """Generate source code for training and inference of a classification model using PyTorch
 
     This function generates a Python script for training and inference of a model
     using PyTorch (for classification task) or MMDetection (for object detection and instance segmentation tasks).
-    Two types of scripts can be generated based on the `module` argument:
+    Two types of scripts can be generated based on the `vanilla` argument:
     one with importation of cvtk and the other without importation of cvtk.
     The script with importation of cvtk keeps the code simple and easy to understand,
     since most complex functions are implemented in cvtk.
@@ -122,20 +122,18 @@ def generate_source(project: str, task: str='cls', module: str='cvtk') -> None:
     Args:
         project (str): A file path to save the script.
         task (str): The task type of project. Three types of tasks can be specified ('cls', 'det', 'segm'). The default is 'cls'.
-        module (str): Script with importation of cvtk ('cvtk') or not ('torch' or 'mmdet').
+        vanilla (bool): Generate a script without importation of cvtk. The default is False.
     """
-    if module not in ['cvtk', 'vanilla']:
-        raise ValueError('The module should be either `cvtk` or `vanilla`.')
     
     if task.lower() in ['cls', 'classification']:
-        generate_source_cls(project, module)
+        generate_source_cls(project, vanilla)
     elif task.lower() in ['det', 'detection', 'seg', 'segm', 'segmentation']:
-        generate_source_det(project, task, module)
+        generate_source_det(project, task, vanilla)
     else:
         raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`segm`) tasks.')
 
 
-def generate_app(project: str, source: str, label: str, model: str, weights: str, module: str='cvtk'):
+def generate_app(project: str, source: str, label: str, model: str, weights: str, vanilla=False) -> None:
     """Generate a FastAPI application for inference of a classification or detection model
     
     This function generates a FastAPI application for inference of a classification or detection model.
@@ -152,8 +150,6 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
         >>> from cvtk.ml import generate_app
         >>> generate_app('./project', 'model.py', 'label.txt', 'model.cfg', 'model.pth')
     """
-    if module not in ['cvtk', 'vanilla']:
-        raise ValueError('The module should be either `cvtk` or `vanilla`.')
 
     if not os.path.exists(project):
         os.makedirs(project)
@@ -169,17 +165,17 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
         shutil.copy2(model, os.path.join(project, model_cfg))
     shutil.copy2(weights, os.path.join(project, model_weights))
 
-    task_type, task_module = __estimate_task_from_source(source)
+    source_task_type, source_is_vanilla = __estimate_task_from_source(source)
 
     # FastAPI script
-    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/fastapi_.py'), task_type)
-    if module == 'vanilla':
-        if task_module == 'vanilla':
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/fastapi_.py'), source_task_type)
+    if vanilla:
+        if source_is_vanilla:
             for i in range(len(tmpl)):
                 if tmpl[i][:9] == 'from cvtk':
-                    if task_type == 'cls':
+                    if source_task_type == 'cls':
                         tmpl[i] = f'from {coremodule} import CLSCORE as MODULECORE'
-                    elif task_type == 'det':
+                    elif source_task_type == 'det':
                         tmpl[i] = f'from {coremodule} import MMDETCORE as MODULECORE'
                     else:
                         raise ValueError('Unsupport Type.')
@@ -195,7 +191,7 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
     # HTML template
     if not os.path.exists(os.path.join(project, 'templates')):
         os.makedirs(os.path.join(project, 'templates'))
-    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/html/fastapi_.html'), task_type)
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/html/fastapi_.html'), source_task_type)
     with open(os.path.join(project, 'templates', 'index.html'), 'w') as fh:
         fh.write(''.join(tmpl))
     
@@ -262,10 +258,10 @@ def __estimate_task_from_source(source):
     else:
         raise ValueError('The task type cannot be determined from the source code. Make sure your source code contains CLSCORE or MMDETCORE class definition or importation, and call.')
     if is_cls_cvtk or is_det_cvtk:
-        source = 'cvtk'
+        is_vanilla = False
     elif is_cls_vanilla or is_det_vanilla:
-        source = 'vanilla'
+        is_vanilla = True
     else:
         raise ValueError('The source code cannot be determined from the source code. Make sure your source code contains importation of cvtk.ml.torchutils or cvtk.ml.mmdetutils.')
 
-    return task, source
+    return task, is_vanilla

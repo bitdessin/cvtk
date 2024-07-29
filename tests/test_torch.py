@@ -10,17 +10,18 @@ class TestTorch(unittest.TestCase):
         self.dpath = testutils.set_ws(os.path.join('outputs', 'test_torch'))
     
 
-    def __run_proc(self, module, code_generator):
+    def __run_proc(self, vanilla, code_generator):
+        module = 'vanilla' if vanilla else 'cvtk'
         dpath = testutils.set_ws(os.path.join(self.dpath, f'{module}_{code_generator}'))
         script = os.path.join(dpath, 'script.py')
         
         if code_generator == 'source':
-            cvtk.ml.utils.generate_source(script, task='cls', module=module)
+            cvtk.ml.utils.generate_source(script, task='cls', vanilla=vanilla)
         elif code_generator == 'cmd':
-            testutils.run_cmd(['cvtk', 'create',
-                    '--task', 'cls',
-                    '--script', script,
-                    '--module', module])
+            cmd_ = ['cvtk', 'create', '--task', 'cls', '--script', script]
+            if vanilla:
+                cmd_.append('--vanilla')
+            testutils.run_cmd(cmd_)
 
         testutils.run_cmd(['python', script, 'train',
                     '--label', testutils.data['cls']['label'],
@@ -38,19 +39,19 @@ class TestTorch(unittest.TestCase):
 
 
     def test_cvtk_source(self):
-        self.__run_proc('cvtk', 'source')
+        self.__run_proc(False, 'source')
 
 
     def test_torch_source(self):
-        self.__run_proc('vanilla', 'source')
+        self.__run_proc(True, 'source')
 
 
     def test_cvtk_cmd(self):
-        self.__run_proc('cvtk', 'cmd')
+        self.__run_proc(False, 'cmd')
 
 
     def test_torch_cmd(self):
-        self.__run_proc('vanilla', 'cmd')    
+        self.__run_proc(True, 'cmd')    
     
 
 if __name__ == '__main__':

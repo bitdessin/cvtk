@@ -38,7 +38,9 @@ def set_ws(dpath):
 
 
 def run_cmd(cmd):
+    print('\nCOMMAND -----------------------------------------')
     print(' '.join(cmd))
+    print('-------------------------------------------------\n')
     output = subprocess.run(cmd)
     if output.returncode != 0:
         raise Exception('Error: {}'.format(output.returncode))

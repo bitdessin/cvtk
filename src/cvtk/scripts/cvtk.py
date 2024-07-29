@@ -23,7 +23,7 @@ def split_dataset(args):
 def create(args):
     cvtk.ml.utils.generate_source(args.script,
                                   task=args.task,
-                                  module=args.module)
+                                  vanilla=args.vanilla)
 
 
 def app(args):
@@ -32,7 +32,7 @@ def app(args):
                                label=args.label,
                                model=args.model,
                                weights=args.weights,
-                               module=args.module)
+                               vanilla=args.vanilla)
 
 
 def main():
@@ -42,7 +42,7 @@ def main():
     parser_train = subparsers.add_parser('create')
     parser_train.add_argument('--script', type=str, required=True)
     parser_train.add_argument('--task', type=str, choices=['cls', 'det', 'segm'], default='cls')
-    parser_train.add_argument('--module', type=str, choices=['cvtk', 'vanilla'], default='cvtk')
+    parser_train.add_argument('--vanilla', action='store_true', default=False)
     parser_train.set_defaults(func=create)
 
     parser_train = subparsers.add_parser('app')
@@ -51,7 +51,7 @@ def main():
     parser_train.add_argument('--label', type=str, required=True)
     parser_train.add_argument('--model', type=str, default=True)
     parser_train.add_argument('--weights', type=str, required=True)
-    parser_train.add_argument('--module', type=str, choices=['cvtk', 'vanilla'], default='cvtk')
+    parser_train.add_argument('--vanilla', action='store_true', default=False)
     parser_train.set_defaults(func=app)
 
     parser_split_text = subparsers.add_parser('split')

@@ -11,18 +11,19 @@ class TestMMDet(unittest.TestCase):
         self.dpath = testutils.set_ws(os.path.join('outputs', 'test_mmdet'))
     
 
-    def __run_proc(self, task, module, code_generator):
+    def __run_proc(self, task, vanilla, code_generator):
+        module = 'vanilla' if vanilla else 'cvtk'
         dpath = testutils.set_ws(os.path.join(self.dpath, f'{task}_{module}_{code_generator}'))
         
         script = os.path.join(dpath, 'script.py')
         
         if code_generator == 'source':
-            cvtk.ml.utils.generate_source(script, task=task, module=module)
+            cvtk.ml.utils.generate_source(script, task=task, vanilla=vanilla)
         elif code_generator == 'cmd':
-            testutils.run_cmd(['cvtk', 'create',
-                    '--task', task,
-                    '--script', script,
-                    '--module', module])
+            cmd_ = ['cvtk', 'create', '--task', task, '--script', script]
+            if vanilla:
+                cmd_.append('--vanilla')
+            testutils.run_cmd(cmd_)
 
         testutils.run_cmd(['python', script, 'train',
                     '--label', testutils.data[task]['label'],
