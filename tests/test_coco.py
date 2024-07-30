@@ -1,6 +1,6 @@
 import os
 import json
-import cvtk.coco
+import cvtk.format.coco as cvtkcoco
 import unittest
 import testutils
 
@@ -39,9 +39,9 @@ class TestBaseUtils(unittest.TestCase):
         return [cateid2name[ann['category_id']] for ann in anns]
 
     def test_merge(self):
-        coco_merged_1 = cvtk.coco.merge(self.coco_files,
+        coco_merged_1 = cvtkcoco.merge(self.coco_files,
                                  os.path.join(self.output_dpath, 'merged_from_file.json'))
-        coco_merged_2 = cvtk.coco.merge(self.coco_dicts,
+        coco_merged_2 = cvtkcoco.merge(self.coco_dicts,
                                  os.path.join(self.output_dpath, 'merged_from_dict.json'))
 
         self.assertEqual(self.__get_bboxes(self.coco_dicts[0]),
@@ -56,10 +56,10 @@ class TestBaseUtils(unittest.TestCase):
 
 
     def test_split(self):
-        coco_split_1 = cvtk.coco.split(self.coco_files[0],
+        coco_split_1 = cvtkcoco.split(self.coco_files[0],
                                 os.path.join(self.output_dpath, 'split_from_file.json'),
                                 random_seed=1)
-        coco_split_2 = cvtk.coco.split(self.coco_dicts[0],
+        coco_split_2 = cvtkcoco.split(self.coco_dicts[0],
                                 os.path.join(self.output_dpath, 'split_from_dict.json'),
                                 random_seed=1)
         

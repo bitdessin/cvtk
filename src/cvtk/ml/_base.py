@@ -1,97 +1,198 @@
-import inspect
+import os
+import shutil
+import importlib
+import random
+import re
+from .torchutils import __generate_source as generate_source_cls
+from .mmdetutils import __generate_source as generate_source_det
+from ._subutils import __estimate_task_from_source, __generate_app_html_tmpl
 
 
-def __get_imports(code_file: str) -> list[str]:
-    """Find lines containing import statements from a file.
+def split_dataset(data: str|list,
+                  label: list|None=None,
+                  ratios: list[float]=[0.8, 0.1, 0.1],
+                  balanced: bool=True,
+                  shuffle: bool=True,
+                  random_seed: int|None=None) -> list|tuple[list, list]:
+    """Split a dataset into multiple subsets with the given ratios
+
+    Split a dataset into multiple subsets with the given ratios.
+    
     
     Args:
-        code_file (str): Path to a python file.
-    """
-    imports = []
+        data (str|list): The dataset to split. The input can be a list of data (e.g., images)
+            or a path to a text file. If list is given, each element of the list is treated as a sample.
+        labels (list): The labels corresponding to the `data`. Spliting with a balanced class distribution
+            is only supported when `labels` is given. If `data` is a path to a text file,
+            the function will try to load values in the second column as labels
+            corresponding to the image data written in first column.
+        ratios (list): The ratios to split the dataset. The sum of the ratios should be 1.
+        balanced (bool): Split the dataset with a balanced class distribution if `label` is given.
+        shuffle (bool): Shuffle the dataset before splitting.
+        random_seed (int|none): Random seed for shuffling the dataset.
 
-    with open(code_file, 'r') as codefh:
-        for codeline in codefh:
-            if codeline[0:6] == 'import':
-                imports.append(codeline)
-    return imports
+    Returns:
+        A list of the split datasets. The length of the list is the same as the length of `ratios`.
 
-
-def __insert_imports(tmpl: list[str], modules: list[str]) -> list[str]:
-    """Insert import statements to a template.
-    
-    Insert import statements to a template (`tmpl`) at the end of the import statements in the template.
-
-    Args:
-        tmpl (list[str]): A list of strings containing the template.
-        modules (list[str]): A list of strings containing import statements.
-    
     Examples:
-        >>> tmpl = ['import os',
-        ...         '',
-        ...         'print("Hello, World!")'],
-        >>> modules = ['import cvtk']
-        >>> __insert_imports(tmpl, modules)
-        ['import os',
-        'import cvtk',
-        '',
-        'print("Hello, World!")']    
+        >>> from cvtk.ml import split_dataset
         >>> 
-        >>> 
-        >>> tmpl = __insert_imports(tmpl, __get_imports(__file__)
-        >>> 
+        >>> data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        >>> labels = [0, 1, 0, 1, 0, 1, 0, 1, 0, 1]
+        >>> train_data, val_data, test_data, train_labels, val_labels, test_labels = split_dataset(data, labels)
     """
-    extmpl = []
-    imported = False
-    for codeline in tmpl:
-        if codeline[0:6] == 'import':
-            # pass the imports in original file
-            pass
-        else:
-            if not imported:
-                # insert the imports
-                for mod in modules:
-                    extmpl.append(mod)
-                imported = True
-            extmpl.append(codeline)
-    return extmpl
+    data_from_file = False
+    if isinstance(data, str):
+        data_ = []
+        label_ = []
+        with open(data, 'r') as infh:
+            for line in infh:
+                line = line.strip()
+                m = line.split('\t', 2)
+                data_.append(line)
+                if len(m) > 1:
+                    label_.append(m[1])
+        data = data_
+        if len(label_) > 0:
+            label = label_
+        data_from_file = True
 
-
-def __extend_cvtk_imports(tmpl, module_dicts):
-    extmpl = []
-
-    extended = False
-    for codeline in tmpl:
-        if codeline[0:9] == 'from cvtk':
-            if not extended:
-                for mod_dict in module_dicts:
-                    for mod_name, mod_funcs in mod_dict.items():
-                        for mod_func in mod_funcs:
-                            extmpl.append('\n\n\n' + inspect.getsource(mod_func))
-                extended = True
-        else:
-            extmpl.append(codeline)
+    if label is not None and len(data) != len(label):
+        raise ValueError('The length of `data` and `labels` should be the same.')
+    if abs(1.0 - sum(ratios)) > 1e-10:
+        raise ValueError('The sum of `ratios` should be 1.')
+    ratios_cumsum = [0]
+    for r in ratios:
+        ratios_cumsum.append(r + ratios_cumsum[-1])
+    ratios_cumsum[-1] = 1.0
     
-    return extmpl
+    dclasses = {}
+    if label is not None:
+        for i, label in enumerate(label):
+            if label not in dclasses:
+                dclasses[label] = []
+            dclasses[label].append(data[i])
+    else:
+        dclasses['__ALLCLASSES__'] = data
+    
+    if shuffle:
+        if random_seed is not None:
+            random.seed(random_seed)
+        for cl in dclasses:
+            random.shuffle(dclasses[cl])
+    
+    data_subsets = []
+    label_subsets = []
+    for i in range(len(ratios)):
+        data_subsets.append([])
+        label_subsets.append([])
+        if balanced:
+            for cl in dclasses:
+                n_samples = len(dclasses[cl])
+                n_splits = [int(n_samples * r) for r in ratios_cumsum]
+                data_subsets[i] += dclasses[cl][n_splits[i]:n_splits[i + 1]]
+                label_subsets[i] += [cl] * (n_splits[i + 1] - n_splits[i])
+        else:
+            n_samples = len(data)
+            n_splits = [int(n_samples * r) for r in ratios_cumsum]
+            data_subsets[i] = data[n_splits[i]:n_splits[i + 1]]
+            if label is not None:
+                label_subsets[i] = label[n_splits[i]:n_splits[i + 1]]
+    
+    if data_from_file or (label is None):
+        return data_subsets
+    else:
+        return data_subsets, label_subsets
 
 
-def __del_docstring(func_source: str) -> str:
-    """Delete docstring from source code.
 
-    Delete docstring (strings between \"\"\" or ''' ) from source code.
+def generate_source(project: str, task: str='cls', vanilla=False) -> None:
+    """Generate source code for training and inference of a classification model using PyTorch
+
+    This function generates a Python script for training and inference of a model
+    using PyTorch (for classification task) or MMDetection (for object detection and instance segmentation tasks).
+    Two types of scripts can be generated based on the `vanilla` argument:
+    one with importation of cvtk and the other without importation of cvtk.
+    The script with importation of cvtk keeps the code simple and easy to understand,
+    since most complex functions are implemented in cvtk.
+    It designed for users who are beginning to learn deep learning for image tasks with PyTorch or MMDetection.
+    On the other hand, the script without cvtk import is longer and more exmplex,
+    but it can be more flexibly customized and further developed, 
+    since all functions is implemented directly in torch and torchvision.
 
     Args:
-        func_source (str): Source code of a function.
+        project (str): A file path to save the script.
+        task (str): The task type of project. Three types of tasks can be specified ('cls', 'det', 'segm'). The default is 'cls'.
+        vanilla (bool): Generate a script without importation of cvtk. The default is False.
     """
-    func_source_ = ''
-    is_docstring = False
-    omit = False
-    for line in func_source.split('\n'):
-        if line.startswith('if __name__ == \'__main__\':'):
-            omit = True
-        if (line.strip().startswith('"""') or line.strip().startswith("'''")) and (not omit):
-            is_docstring = not is_docstring
-        else:
-            if not is_docstring:
-                func_source_ += line + '\n'
-    return func_source_
+    
+    if task.lower() in ['cls', 'classification']:
+        generate_source_cls(project, vanilla)
+    elif task.lower() in ['det', 'detection', 'seg', 'segm', 'segmentation']:
+        generate_source_det(project, task, vanilla)
+    else:
+        raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`segm`) tasks.')
 
+
+def generate_app(project: str, source: str, label: str, model: str, weights: str, vanilla=False) -> None:
+    """Generate a FastAPI application for inference of a classification or detection model
+    
+    This function generates a FastAPI application for inference of a classification or detection model.
+
+    Args:
+        project (str): A file path to save the FastAPI application.
+        source (str): The source code of the model.
+        label (str): The label file of the dataset.
+        model (str): The configuration file of the model.
+        weights (str): The weights file of the model.
+        module (str): Script with importation of cvtk ('cvtk') or not ('fastapi').
+
+    Examples:
+        >>> from cvtk.ml import generate_app
+        >>> generate_app('./project', 'model.py', 'label.txt', 'model.cfg', 'model.pth')
+    """
+
+    if not os.path.exists(project):
+        os.makedirs(project)
+
+    coremodule = os.path.splitext(os.path.basename(source))[0]
+    data_label = os.path.basename(label)
+    model_cfg = os.path.basename(model)
+    model_weights = os.path.basename(weights)
+
+    shutil.copy2(source, os.path.join(project, coremodule + '.py'))
+    shutil.copy2(label, os.path.join(project, data_label))
+    if os.path.exists(model):
+        shutil.copy2(model, os.path.join(project, model_cfg))
+    shutil.copy2(weights, os.path.join(project, model_weights))
+
+    source_task_type, source_is_vanilla = __estimate_task_from_source(source)
+
+    # FastAPI script
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/_fastapi.py'), source_task_type)
+    if vanilla:
+        if source_is_vanilla:
+            for i in range(len(tmpl)):
+                if tmpl[i][:9] == 'from cvtk':
+                    if source_task_type == 'cls':
+                        tmpl[i] = f'from {coremodule} import CLSCORE as MODULECORE'
+                    elif source_task_type == 'det':
+                        tmpl[i] = f'from {coremodule} import MMDETCORE as MODULECORE'
+                    else:
+                        raise ValueError('Unsupport Type.')
+        else:
+            print('The CLSCORE or MMDETCORE class definition is not found in the source code. The script will be generated with importation of cvtk.')
+    tmpl = ''.join(tmpl)
+    tmpl = tmpl.replace('__DATALABEL__', data_label)
+    tmpl = tmpl.replace('__MODELCFG__', model_cfg)
+    tmpl = tmpl.replace('__MODELWEIGHT__', model_weights)
+    with open(os.path.join(project, 'main.py'), 'w') as fh:
+        fh.write(tmpl)
+
+    # HTML template
+    if not os.path.exists(os.path.join(project, 'templates')):
+        os.makedirs(os.path.join(project, 'templates'))
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/html/fastapi_.html'), source_task_type)
+    with open(os.path.join(project, 'templates', 'index.html'), 'w') as fh:
+        fh.write(''.join(tmpl))
+    

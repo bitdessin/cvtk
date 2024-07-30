@@ -1,5 +1,5 @@
 import argparse
-import cvtk.ml.utils
+import cvtk.ml
 
 
 
@@ -7,7 +7,7 @@ def split_dataset(args):
     ratios = [float(r) for r in args.ratios.split(':')]
     ratios = [r / sum(ratios) for r in ratios]
     if args.type.lower() in ['text', 'txt', 'csv', 'tsv']:
-        subsets = cvtk.ml.utils.split_dataset(data=args.input,
+        subsets = cvtk.ml.split_dataset(data=args.input,
                                              ratios=ratios,
                                              balanced=args.balanced,
                                              shuffle=args.shuffle,
@@ -21,13 +21,13 @@ def split_dataset(args):
     
 
 def create(args):
-    cvtk.ml.utils.generate_source(args.script,
+    cvtk.ml.generate_source(args.script,
                                   task=args.task,
                                   vanilla=args.vanilla)
 
 
 def app(args):
-    cvtk.ml.utils.generate_app(args.project,
+    cvtk.ml.generate_app(args.project,
                                source=args.source,
                                label=args.label,
                                model=args.model,

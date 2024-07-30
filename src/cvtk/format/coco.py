@@ -2,7 +2,7 @@ import os
 import copy
 import json
 import random
-from .base import JsonComplexEncoder
+from cvtk import JsonComplexEncoder
 
 
 def merge(input: str|list[str], output: str|None=None, ensure_ascii: bool=False, indent: int|None=4) -> dict:

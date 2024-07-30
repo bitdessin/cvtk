@@ -34,10 +34,10 @@ import mmengine.config
 import mmengine.registry
 import mmengine.runner
 import mmdet.evaluation
-from cvtk.base import imread, Image, ImageAnnotation, JsonComplexEncoder
-from cvtk.coco import calc_stats
+from cvtk import imread, Image, ImageAnnotation, JsonComplexEncoder
+from cvtk.format.coco import calc_stats
 from cvtk.ml.data import DataLabel
-from ._base import __del_docstring, __get_imports, __insert_imports, __extend_cvtk_imports
+from ._subutils import __del_docstring, __get_imports, __insert_imports, __extend_cvtk_imports
 
 
 logger = logging.getLogger(__name__)
@@ -731,7 +731,7 @@ def coco(datalabel, images):
     
     Args:
         datalabel (DataLabel): The class.
-        outputs (list): The list of outputs.
+        images (list): The list of cvtk.Image objects.
 
     """
     coco = {'images': [], 'annotations': [], 'categories': []}
@@ -893,13 +893,13 @@ def __generate_source(script_fpath, task, vanilla=False):
         script_fpath += '.py'
 
     tmpl = ''
-    with open(importlib.resources.files('cvtk').joinpath('tmpl/mmdet_.py'), 'r') as infh:
+    with open(importlib.resources.files('cvtk').joinpath('tmpl/_mmdet.py'), 'r') as infh:
         tmpl = infh.readlines()
 
     if vanilla:
         cvtk_modules = [
             {'cvtk': [JsonComplexEncoder, ImageAnnotation, Image]},
-            {'cvtk.coco': [calc_stats]},
+            {'cvtk.format.coco': [calc_stats]},
             {'cvtk.ml.data': [DataLabel]},
             {'cvtk.ml.mmdetutils': [DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines, coco]}
         ]

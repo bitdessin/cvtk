@@ -1,5 +1,5 @@
 import os
-import cvtk.ml.utils
+import cvtk.ml
 import unittest
 import testutils
 
@@ -16,7 +16,7 @@ class TestTorch(unittest.TestCase):
         script = os.path.join(dpath, 'script.py')
         
         if code_generator == 'source':
-            cvtk.ml.utils.generate_source(script, task='cls', vanilla=vanilla)
+            cvtk.ml.generate_source(script, task='cls', vanilla=vanilla)
         elif code_generator == 'cmd':
             cmd_ = ['cvtk', 'create', '--task', 'cls', '--script', script]
             if vanilla:

@@ -1,6 +1,6 @@
 import os
 import subprocess
-import cvtk.ml.utils
+import cvtk.ml
 import unittest
 import testutils
 
@@ -26,7 +26,7 @@ class TestFastapi(unittest.TestCase):
         app_project = os.path.join(dpath, 'app')
 
         if code_generator == 'source':
-            cvtk.ml.utils.generate_source(script, task=task, vanilla=task_vanilla)
+            cvtk.ml.generate_source(script, task=task, vanilla=task_vanilla)
         elif code_generator == 'cmd':
             cmd_ = ['cvtk', 'create', '--task', task, '--script', script]
             cmd_.append('--vanilla')
@@ -41,7 +41,7 @@ class TestFastapi(unittest.TestCase):
 
        
         if code_generator == 'source':
-            cvtk.ml.utils.generate_app(app_project,
+            cvtk.ml.generate_app(app_project,
                             source=script,
                             label=testutils.data[task]['label'],
                             model=model_cfg,

@@ -17,7 +17,7 @@ import torch
 import torchvision
 import torchvision.transforms.v2
 from cvtk.ml.data import DataLabel
-from ._base import __get_imports, __insert_imports, __extend_cvtk_imports, __del_docstring
+from ._subutils import __get_imports, __insert_imports, __extend_cvtk_imports, __del_docstring
 
 
 
@@ -788,7 +788,7 @@ def __generate_source(script_fpath, vanilla=False):
         script_fpath += '.py'
 
     tmpl = ''
-    with open(importlib.resources.files('cvtk').joinpath('tmpl/torch_.py'), 'r') as infh:
+    with open(importlib.resources.files('cvtk').joinpath('tmpl/_torch.py'), 'r') as infh:
         tmpl = infh.readlines()
 
     if vanilla:

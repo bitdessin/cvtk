@@ -1,5 +1,5 @@
 import os
-import cvtk.ml.utils
+import cvtk.ml
 import unittest
 import testutils
 
@@ -18,7 +18,7 @@ class TestMMDet(unittest.TestCase):
         script = os.path.join(dpath, 'script.py')
         
         if code_generator == 'source':
-            cvtk.ml.utils.generate_source(script, task=task, vanilla=vanilla)
+            cvtk.ml.generate_source(script, task=task, vanilla=vanilla)
         elif code_generator == 'cmd':
             cmd_ = ['cvtk', 'create', '--task', task, '--script', script]
             if vanilla:

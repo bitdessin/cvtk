@@ -1,4 +1,4 @@
-__version__ = '0.2.9'
+__version__ = '0.2.10'
 
-from .base import imread, imconvert, imwrite, imshow, imlist, imresize
-from .base import ImageAnnotation, Image, JsonComplexEncoder
+from ._base import imread, imconvert, imwrite, imshow, imlist, imresize
+from ._base import ImageAnnotation, Image, JsonComplexEncoder
