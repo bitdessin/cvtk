@@ -89,9 +89,6 @@ class DataLabel():
     def labels(self):
         return self.__labels
 
-    @labels.setter
-    def labels(self):
-        raise AttributeError('DataLabel class does not support setting labels. Use the constructor to set labels.')
 
 
 

@@ -59,9 +59,11 @@ async def inference(request: Request):
 #%CVTK%# ENDIF
 
 #%CVTK%# IF TASK=det,segm
-    output = MODEL.inference(image_fpath, cutoff=0.5, format='cvtk.json')
-    output = output[0]
-    output['image'] = os.path.join('storage', os.path.basename(image_fpath))
+    output = MODEL.inference(image_fpath, cutoff=0.5)
+    output = {
+        'image': os.path.join('storage', os.path.basename(image_fpath)),
+        'annotations': [_ for _ in output[0].annotations]
+    }
     for i in range(len(output['annotations'])):
         if 'mask' in output['annotations'][i] and output['annotations'][i]['mask'] is not None:
             output['annotations'][i]['polygons'] = []

@@ -446,7 +446,7 @@ class CLSCORE():
         if self.workspace is None:
             return last_epoch
 
-        trainstats_fpath = os.path.join(self.workspace, 'train_stats.txt')
+        trainstats_fpath = os.path.join(self.workspace, 'checkpoint_latest.train_stats.txt')
         chk_fpath = os.path.join(self.workspace, 'checkpoint_latest.pth')
         if os.path.exists(trainstats_fpath) and os.path.exists(chk_fpath):
             # update train stats
@@ -791,7 +791,7 @@ def __generate_source(script_fpath, vanilla=False):
     with open(importlib.resources.files('cvtk').joinpath('tmpl/_torch.py'), 'r') as infh:
         tmpl = infh.readlines()
 
-    if vanilla:
+    if vanilla is True:
         cvtk_modules = [
             {'cvtk.ml.data': [DataLabel]},
             {'cvtk.ml.torchutils': [DataTransform, Dataset, DataLoader, CLSCORE, plot_trainlog, plot_cm]}

@@ -1,7 +1,7 @@
 import os
-import json
+from cvtk import ImageDeck
 from cvtk.ml.data import DataLabel
-from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines, coco
+from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog
 
 
 def train(label, train, valid, test, output_weights, batch_size=2, num_workers=8, epoch=10):
@@ -10,27 +10,35 @@ def train(label, train, valid, test, output_weights, batch_size=2, num_workers=8
     datalabel = DataLabel(label)
     model = MMDETCORE(datalabel, "__TASKARCH__", None, workspace=temp_dpath)
 
-    train_ = DataLoader(
-                Dataset(datalabel, train, DataPipeline(is_train=True, with_bbox=True, with_mask=False)),
+    train = DataLoader(
+                Dataset(datalabel, train,
+                        DataPipeline(is_train=True, with_bbox=True, with_mask=False)),
                 phase='train', batch_size=batch_size, num_workers=num_workers)
-    valid_ = DataLoader(
-                Dataset(datalabel, valid, DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
-                phase='valid', batch_size=batch_size, num_workers=num_workers)
-    test_ = DataLoader(
-                Dataset(datalabel, test, DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
-                phase='test', batch_size=batch_size, num_workers=num_workers)
+    if valid is not None:
+        valid = DataLoader(
+                    Dataset(datalabel, valid,
+                            DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
+                    phase='valid', batch_size=batch_size, num_workers=num_workers)
+    if test is not None:
+        test = DataLoader(
+                    Dataset(datalabel, test,
+                            DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
+                    phase='test', batch_size=batch_size, num_workers=num_workers)
     
-    model.train(train_, valid_, test_, epoch=epoch)
+    model.train(train, valid, test, epoch=epoch)
     model.save(output_weights)
 
-    plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.train.txt',
-                  output=os.path.splitext(output_weights)[0] + '.train_stats.train.png')
-    plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.valid.txt',
-                  output=os.path.splitext(output_weights)[0] + '.train_stats.valid.png')    
+    if os.path.exists(os.path.splitext(output_weights)[0] + '.train_stats.train.txt'):
+        plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.train.txt',
+                    output=os.path.splitext(output_weights)[0] + '.train_stats.train.png')
+    if os.path.exists(os.path.splitext(output_weights)[0] + '.train_stats.valid.txt'):
+        plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.valid.txt',
+                    output=os.path.splitext(output_weights)[0] + '.train_stats.valid.png')    
         
 
 def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
     datalabel = DataLabel(label)
+    
     model = MMDETCORE(datalabel, os.path.splitext(model_weights)[0] + '.py', model_weights, workspace=output)
 
     data = DataLoader(
@@ -40,12 +48,12 @@ def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
     pred_outputs = model.inference(data)
 
     for im in pred_outputs:
-        draw_outlines(im.file_path,
-                      os.path.join(output, os.path.basename(im.file_path)),
-                      im.annotations)
-    with open(os.path.join(output, 'instances.json'), 'w') as fh:
-        coco_format = coco(datalabel, pred_outputs)
-        json.dump(coco_format, fh, ensure_ascii=False, indent=4)
+        im.draw(format='bbox+segm',
+                output=os.path.join(output, os.path.basename(im.source)))
+    
+    imdeck = ImageDeck(pred_outputs)
+    imdeck.dump(os.path.join(output, 'instances.coco.json'),
+                format='coco', datalabel=datalabel.labels)
 
 
 def _train(args):
@@ -65,8 +73,8 @@ if __name__ == '__main__':
     parser_train = subparsers.add_parser('train')
     parser_train.add_argument('--label', type=str, required=True)
     parser_train.add_argument('--train', type=str, required=True)
-    parser_train.add_argument('--valid', type=str, required=False)
-    parser_train.add_argument('--test', type=str, required=False)
+    parser_train.add_argument('--valid', type=str, required=False, default=None)
+    parser_train.add_argument('--test', type=str, required=False, default=None)
     parser_train.add_argument('--output_weights', type=str, required=True)
     parser_train.set_defaults(func=_train)
 

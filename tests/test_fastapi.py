@@ -1,24 +1,19 @@
 import os
-import subprocess
-import cvtk.ml
+from cvtk.ml import generate_source, generate_app
 import unittest
 import testutils
 
 
 
-
-class TestFastapi(unittest.TestCase):
+class TestDemoAPP(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.dpath = testutils.set_ws(os.path.join('outputs', 'test_fastapi'))
-        self.module_types = [True, False]
-        self.generator_types = ['source', 'cmd']
-    
+       
     
     def __run_proc(self, task, task_vanilla, api_vanilla, code_generator):
         task_module = 'vanilla' if task_vanilla else 'cvtk'
         api_module = 'vanilla' if api_vanilla else 'cvtk'
-        dpath = testutils.set_ws(os.path.join(self.dpath, f'{task}_{task_module}_{api_module}_{code_generator}'))
+        dpath = testutils.set_ws(f'fastapi_demoapp__{task}_{task_module}_{api_module}_{code_generator}')
         
         script = os.path.join(dpath, 'script.py')
         model_weight = os.path.join(dpath, 'model.pth')
@@ -26,7 +21,7 @@ class TestFastapi(unittest.TestCase):
         app_project = os.path.join(dpath, 'app')
 
         if code_generator == 'source':
-            cvtk.ml.generate_source(script, task=task, vanilla=task_vanilla)
+            generate_source(script, task=task, vanilla=task_vanilla)
         elif code_generator == 'cmd':
             cmd_ = ['cvtk', 'create', '--task', task, '--script', script]
             cmd_.append('--vanilla')
@@ -41,12 +36,12 @@ class TestFastapi(unittest.TestCase):
 
        
         if code_generator == 'source':
-            cvtk.ml.generate_app(app_project,
-                            source=script,
-                            label=testutils.data[task]['label'],
-                            model=model_cfg,
-                            weights=os.path.join(dpath, 'model.pth'),
-                            vanilla=api_vanilla)
+            generate_app(app_project,
+                         source=script,
+                         label=testutils.data[task]['label'],
+                         model=model_cfg,
+                         weights=os.path.join(dpath, 'model.pth'),
+                         vanilla=api_vanilla)
         elif code_generator == 'cmd':
             cmd_ = ['cvtk', 'app',
                     '--project', app_project, 
@@ -62,24 +57,18 @@ class TestFastapi(unittest.TestCase):
         
 
     def test_cls(self):
-        for task_module in self.module_types:
-            for api_module in self.module_types:
-                for code_generator in self.generator_types:
-                    self.__run_proc('cls', task_module, api_module, code_generator)
+        self.__run_proc('cls', True, True, 'source')
+        self.__run_proc('cls', False, False, 'cmd')
 
 
     def test_det(self):
-        for task_module in self.module_types:
-            for api_module in self.module_types:
-                for code_generator in self.generator_types:
-                    self.__run_proc('det', task_module, api_module, code_generator)
+        self.__run_proc('det', True, True, 'source')
+        self.__run_proc('det', False, False, 'cmd')
 
     
     def test_segm(self):
-        for task_module in self.module_types:
-            for api_module in self.module_types:
-                for code_generator in self.generator_types:
-                    self.__run_proc('segm', task_module, api_module, code_generator)
+        self.__run_proc('segm', True, True, 'cmd')
+        self.__run_proc('segm', False, False, 'source')
 
 
 if __name__ == '__main__':

@@ -1,31 +1,37 @@
 import os
+import re
+import datetime
 import shutil
 import json
+import random
+import pathlib
+import io
+import base64
+import copy
 import filetype
 import logging
 import gzip
 import tempfile
 import pickle
-import random
 import pandas as pd
 import numpy as np
 import importlib
-import plotly.express as px
-import plotly.subplots
-import plotly.graph_objects as go
 import PIL
 import PIL.Image
 import PIL.ImageOps
 import PIL.ImageDraw
 import PIL.ImageFont
+import skimage
 import skimage.measure
+import plotly.express as px
+import plotly.subplots
+import plotly.graph_objects as go
+import pycocotools
 import pycocotools.coco
 import pycocotools.mask
 import torch
 import mim
-import mmcv
 import mmdet
-import mmcv.ops
 import mmdet.utils
 import mmdet.apis
 import mmdet.models
@@ -34,7 +40,7 @@ import mmengine.config
 import mmengine.registry
 import mmengine.runner
 import mmdet.evaluation
-from cvtk import imread, Image, ImageAnnotation, JsonComplexEncoder
+from cvtk import imread, Image, Annotation, ImageDeck, JsonComplexEncoder
 from cvtk.format.coco import calc_stats
 from cvtk.ml.data import DataLabel
 from ._subutils import __del_docstring, __get_imports, __insert_imports, __extend_cvtk_imports
@@ -43,22 +49,22 @@ from ._subutils import __del_docstring, __get_imports, __insert_imports, __exten
 logger = logging.getLogger(__name__)
 
 
-def DataPipeline(is_train=False, with_bbox=True, with_mask=False):
+def DataPipeline(is_train: bool=False, with_bbox: bool=True, with_mask: bool=False) -> list[dict]:
     """Generate image preprocessing pipeline
 
     This class provides the basic image preprocessing pipeline used in MMDetection.
 
     Args:
-        is_train (bool): Whether the pipeline is for training. Default is False.
-        with_bbox (bool): Whether the dataset contains bounding boxes.
+        is_train: Whether the pipeline is for training. Default is False.
+        with_bbox: Whether the dataset contains bounding boxes.
             Default is True for object detection with bounding boxes only.
-        with_mask (bool): Whether the dataset contains masks. Default is False.
+        with_mask: Whether the dataset contains masks. Default is False.
 
     Attributes:
-        train (list): The image preprocessing pipeline for training.
-        valid (list): The image preprocessing pipeline for validation.
-        test (list): The image preprocessing pipeline for testing. Same to the valid.
-        inference (list): The image preprocessing pipeline for inference. Same to the valid.
+        train: The image preprocessing pipeline for training.
+        valid: The image preprocessing pipeline for validation.
+        test: The image preprocessing pipeline for testing. Same to the valid.
+        inference: The image preprocessing pipeline for inference. Same to the valid.
     """
     if is_train:
         return [
@@ -93,108 +99,27 @@ def DataPipeline(is_train=False, with_bbox=True, with_mask=False):
                            'scale_factor'))
         ]
 
-
-
-@mmdet.registry.DATASETS.register_module()
-class DataSetCfg():
-    """Generate dataset configuration
-
-    This class generates the dataset configuration for MMDetection.
-    Currently only support COCO dataset.
-
-    Args:
-        datalabel (DataLabel): The class
-    """
-
-    METAINFO = {
-        'classes': None,
-        'palette': None
-    }
-
-    def load_data_list(self):
-        self.coco =  pycocotools.coco.COCO(self.ann_file)
-        self.cat_ids = self.coco.getCatIds(catNms=self.metainfo['classes'])
-        self.cat2label = {cat_id: i + 1 for i, cat_id in enumerate(self.cat_ids)}
-
-        img_ids = self.coco.getImgIds()
-        data_list = []
-        for img_id in img_ids:
-            img_info = self.coco.loadImgs(img_id)[0]
-            img_info['id'] = img_id
-            
-            ann_ids = self.coco.getAnnIds(imgIds=[img_id])
-            ann_info = self.coco.loadAnns(ann_ids)
-
-            data_info = self.parse_data_info(img_info, ann_info)
-            data_list.append(data_info)
-
-        return data_list
     
 
-    def parse_data_info(self, img_info, ann_info):
-        data_info = {}
-
-        data_info = {
-            'img_id': img_info['id'],
-            'img_path': os.path.join(self.data_prefix['img'], img_info['file_name']),
-            'seg_map_path': None,
-            'height': img_info['height'],
-            'width': img_info['width']
-        }
-
-        if self.return_classes:
-            data_info['text'] = self.metainfo['classes']
-            data_info['caption_prompt'] = self.caption_prompt
-            data_info['custom_entities'] = True
-        
-        instances = []
-        for ann in ann_info:
-            if ann.get('ignore', False):
-                continue
-            
-            x1, y1, w, h = ann['bbox']
-            inter_w = max(0, min(x1 + w, img_info['width']) - max(x1, 0))
-            inter_h = max(0, min(y1 + h, img_info['height']) - max(y1, 0))
-            if inter_w * inter_h == 0:
-                continue
-            if ann['area'] <= 0 or w < 1 or h < 1:
-                continue
-            if ann['category_id'] not in self.cat_ids:
-                continue
-
-            instance = {}
-            instance['bbox'] = [x1, y1, x1 + w, y1 + h]
-            instance['bbox_label'] = self.cat2label[ann['category_id']]
-            if ann.get('iscrowd', False):
-                instance['ignore_flag'] = 1
-            else:
-                instance['ignore_flag'] = 0
-            if ann.get('segmentation', None):
-                instance['mask'] = ann['segmentation']
-            
-            instances.append(instance)
-
-        data_info['instances'] = instances
-        return data_info
-
-
-    
-
-
-def Dataset(datalabel, dataset=None, pipeline=None, repeat_dataset=False):
+def Dataset(datalabel: DataLabel, dataset: str|list[str]|dict|None, pipeline: list[dict]|None=None, repeat_dataset: bool=False):
     """Generate dataset configuration
 
     This function generates the dataset configuration for MMDetection.
 
     Args:
-        datalabel (DataLabel): The class
-        dataset (list|str): The path to the dataset.
-        pipeline (list): The image preprocessing pipeline.
-        repeat_dataset (bool): Whether to repeat the dataset. Default is False.
+        datalabel: A DataLabel class object.
+        dataset: A path to a COCO format file with extension '.json',
+            a path to a directory containing images,
+            a path to an image file, or a list of paths to image files.
+            Note that, for training, validation, and test, the COCO format file is required.
+        pipeline: The image preprocessing pipeline.
+        repeat_dataset: Whether to repeat the dataset. Default is False.
             Use the repeated dataset for training will be faster in some architecture.
         
     """
-    if isinstance(dataset, str) and dataset.endswith('.json'):
+    if dataset is None:
+        return None
+    elif isinstance(dataset, str) and dataset.endswith('.json'):
         dataset = dict(
             metainfo=dict(classes=datalabel.labels),
             type='CocoDataset',
@@ -209,84 +134,119 @@ def Dataset(datalabel, dataset=None, pipeline=None, repeat_dataset=False):
                 times=1,
                 dataset=dataset
             )
-    else:
+    elif isinstance(dataset, (list, tuple)):
+        dataset = dict(
+            metainfo=dict(classes=datalabel.labels),
+            type='CocoDataset',
+            pipeline=pipeline,
+            data_root=dataset
+        )
+    elif isinstance(dataset, str):
         dataset = dict(
             metainfo=dict(classes=datalabel.labels),
             type='CocoDataset',
             pipeline=pipeline,
             data_root=os.path.abspath(dataset)
         )
+    elif isinstance(dataset, dict):
+        pass
+    else:
+        raise TypeError(f'Invalid type: {type(dataset)}')
     return dataset
 
 
-def DataLoader(dataset, phase='inference', batch_size=4, num_workers=4):
+def DataLoader(dataset: dict|None=None, phase: str='inference', batch_size: int=4, num_workers: int=4) -> dict:
     """Generate dataloader configuration
 
     This function generates the dataloader configuration for MMDetection.
 
     Args:
-        dataset (dict): The dataset configuration.
-        phase (str): The phase of the dataloader. 'train', 'valid', 'test', 'inference' are supported.
-            For prediction, use 'inference'.
-        batch_size (int): The batch size for training, validation, and testing.
-        num_workers (int): The number of CPU cores for data loading.
+        dataset: A dictionary of dataset configuration.
+        phase: The purpose of DataLoader usage. It shold be specified as one
+            'train', 'valie', 'test', and 'inference'.
+        batch_size (int): Batch size.
+        num_workers (int): Number of threads for data preprocessing and loading.
     """
     metrics = ['bbox']
-    if 'pipeline' in dataset:
-        for pp in dataset['pipeline']:
-            if pp['type'] == 'LoadAnnotations':
-                if 'with_mask' in pp and pp['with_mask']:
-                    metrics.append('segm')
+    if dataset is not None:
+        if 'pipeline' in dataset:
+            for pp in dataset['pipeline']:
+                if pp['type'] == 'LoadAnnotations':
+                    if 'with_mask' in pp and pp['with_mask']:
+                        metrics.append('segm')
     
     if phase == 'train':
-        return dict(
-            dataset_type='CocoDataset',
-            train_dataloader=dict(
-                batch_size=batch_size,
-                num_workers=num_workers,
-                dataset=dataset,
-            ),
-            train_cfg = dict(
-                type='EpochBasedTrainLoop',
-                max_epochs=12,
-                val_interval=1,
-            ),
-        )
+        if dataset is None:
+            raise ValueError('The dataset configuration is required for training, but got None.')
+        else:
+            return dict(
+                dataset_type='CocoDataset',
+                train_dataloader=dict(
+                    batch_size=batch_size,
+                    num_workers=num_workers,
+                    dataset=dataset,
+                ),
+                train_cfg = dict(
+                    type='EpochBasedTrainLoop',
+                    max_epochs=12,
+                    val_interval=1,
+                ),
+            )
     elif phase == 'valid':
-        return dict(
-                val_dataloader=dict(
-                    batch_size=batch_size,
-                    num_workers=num_workers,
-                    dataset=dataset,
-                    drop_last=False,
-                    sampler=dict(type='DefaultSampler', shuffle=False)
-                ),
-                val_cfg = dict(type='ValLoop'),
-                val_evaluator = dict(
-                    type='CocoMetric',
-                    ann_file=dataset['ann_file'],
-                    metric=metrics,
-                    backend_args=None
+        if dataset is None:
+            return dict(
+                    val_dataloader=None,
+                    val_cfg=None,
+                    val_evaluator=None)
+        else:
+            return dict(
+                    val_dataloader=dict(
+                        _delete_=True,
+                        batch_size=batch_size,
+                        num_workers=num_workers,
+                        dataset=dataset,
+                        drop_last=False,
+                        sampler=dict(type='DefaultSampler', shuffle=False)
+                    ),
+                    val_cfg = dict(
+                        _delete_=True,
+                        type='ValLoop'),
+                    val_evaluator = dict(
+                        _delete_=True,
+                        type='CocoMetric',
+                        ann_file=dataset['ann_file'],
+                        metric=metrics,
+                        backend_args=None
+                    )
                 )
-            )
     elif phase == 'test':
-        return dict(
-                test_dataloader=dict(
-                    batch_size=batch_size,
-                    num_workers=num_workers,
-                    dataset=dataset,
-                    drop_last=False,
-                    sampler=dict(type='DefaultSampler', shuffle=False)
-                ),
-                test_cfg = dict(type='TestLoop'),
-                test_evaluator = dict(
-                    type='CocoMetric',
-                    ann_file=dataset['ann_file'],
-                    metric=metrics,
-                    backend_args=None
+        if dataset is None:
+            return dict(
+                    test_dataloader=None,
+                    test_cfg=None,
+                    test_evaluator=None)
+        else:
+            return dict(
+                    test_dataloader=dict(
+                        _delete_=True,
+                        batch_size=batch_size,
+                        num_workers=num_workers,
+                        dataset=dataset,
+                        drop_last=False,
+                        sampler=dict(type='DefaultSampler', shuffle=False)
+                    ),
+                    test_cfg = dict(
+                        _delete_=True,
+                        type='TestLoop'),
+                    test_evaluator = dict(
+                        _delete_=True,
+                        type='CocoMetric',
+                        ann_file=dataset['ann_file'],
+                        metric=metrics,
+                        backend_args=None
+                    )
                 )
-            )
-    else:
+    else: # other cases, e.g., inference
         return dict(test_dataloader=dict(
                     _delete_=True,
                     batch_size=batch_size,
@@ -298,40 +258,84 @@ def DataLoader(dataset, phase='inference', batch_size=4, num_workers=4):
 
 
 class MMDETCORE():
-    """A class for MMDetection core functions
+    """A class for object detection and instance segmentation
+
+    This class provides user-friendly APIs for object detection and instance segmentation
+    using MMDetection.
+    There are four main methods are implemented in this class:
+    :func:`train <cvtk.ml.mmdetutils.MMDETCORE.train>`,
+    :func:`test <cvtk.ml.mmdetutils.MMDETCORE.test>`,
+    :func:`save <cvtk.ml.mmdetutils.MMDETCORE.save>`,
+    :func:`inference <cvtk.ml.mmdetutils.MMDETCORE.inference>`.
+    The :func:`train <cvtk.ml.mmdetutils.MMDETCORE.train>` method is used for training the model
+    and perform validation and test if validation and test data are provided.
+    The :func:`test <cvtk.ml.mmdetutils.MMDETCORE.test>` method is used for testing the model with test data.
+    In general, the performance test is performed automatically after the training,
+    but user can also run the test independently from the training process with
+    the :func:`test <cvtk.ml.mmdetutils.MMDETCORE.test>` method.
+    The :func:`save <cvtk.ml.mmdetutils.MMDETCORE.save>` method is used for saving the model weights,
+    configuration (design of model architecture), training log (e.g., mAP and loss per epoch), and test results.
+    The :func:`inference <cvtk.ml.mmdetutils.MMDETCORE.inference>` method is used for running inference
+    with the trained model.
+    The detailed usage of each method is described in the method documentation.
 
 
     Run `mim search mmdet --model "faster r-cnn"` to set the pre-defined configuration for `cfg`.
 
     Args:
-        datalabel (DataLabel): The class for the dataset.
-        cfg (str): The path to the configuration file.
-        weights (str): The path to the model weights.
-        workspace (str): The path to the workspace. Default is None.
+        datalabel: A :class:`DataLabel <cvtk.ml.data.DataLabel>` class object,
+            a path to a file containing class labels,
+            or a list of class labels.
+        cfg: A path to a file containing model configuration (usually with extension '.py'),
+            a dictionary of a model configuration,
+            or a keyword of configuration pre-defined in MMDetection.
+            The pre-defined configuration can be found from MMDetection GitHub repository
+            or list up with the `mim` command (e.g., `mim search mmdet --model "faster r-cnn"`).
+        weights: A path to a file containing model weights (usually with extension '.pth').
+            If `None`, the function will download the pre-trained model weights
+            from the MMDetection repository,
+            or use the random weights if the download is not available.
+        workspace: A path to a directory for storing the intermediate files.
+            If not specified, this function creates a temporary directory in the OS temporary directory
+            and removes it after the process is completed.
+        seed: A seed for model training.
 
-
+    Examples:
+        >>> from cvtk.ml.data import DataLabel
+        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE
+        >>> 
+        >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
+        >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
+        >>> weights = None # download from MMDetection repository
+        >>> workspace = '/path/to/workspace'
+        >>>
+        >>> model = MMDETCORE(datalabel, cfg, weights, workspace)
+        >>> 
+        >>> train = DataLoader('/path/to/train/coco.json', 'train')
+        >>> model.train(train, epoch=10)
+        >>> model.save('/path/to/model.pth')
     """
     def __init__(self,
-                 datalabel,
-                 cfg,
-                 weights=None,
-                 workspace=None):
+                 datalabel: DataLabel|str|list[str]|tuple[str],
+                 cfg: str|dict,
+                 weights: str|None=None,
+                 workspace=None,
+                 seed=None):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.datalabel = self.__init_datalabel(datalabel)
-        self.cfg = self.__init_cfg(cfg, weights)
+        self.cfg = self.__init_cfg(cfg, weights, seed)
         self.model = None
-        self.tempd = self.__init_tempdir(workspace)
+        self.tempd, self.workspace = self.__init_tempdir(workspace)
         self.mmdet_log_dpath = None
-
         self.test_stats = None
-
     
+
     def __del__(self):
         try:
             if self.tempd is not None:
                 self.tempd.cleanup()
         except:
-            logger.info(f'The temporary directory (`{self.cfg.work_dir}`) created by cvtk '
+            logger.info(f'The temporary directory (`{self.workspace}`) created by cvtk '
                         f'cannot be removed automatically. Please remove it manually.')
 
 
@@ -345,8 +349,14 @@ class MMDETCORE():
         return datalabel
 
 
-    def __init_cfg(self, cfg, weights):
-        print(f'{cfg=}, {weights=}')
+    def __init_cfg(self, cfg, weights, seed):
+        if cfg is None or cfg == '':
+            raise TypeError(f'cvtk requires a configuration file to build models. '
+                            f'Set up a path to a configuration file, a dictionary of configuration or '
+                            f'a string of pre-defined configuration. '
+                            f'The pre-defined configuration can be found from MMDetection GitHub repository or '
+                            f'list up with `mim search mmdet --valid-config` command.')
+        
         chk = None
         if isinstance(cfg, str):
             if not os.path.exists(cfg):
@@ -358,8 +368,10 @@ class MMDETCORE():
         elif isinstance(cfg, dict):
             cfg = mmengine.config.Config(cfg)
         else:
-            raise TypeError('Invalid type: {}'.format(type(cfg)))
-        
+            raise TypeError(f'The configuration is expected to be a path to a configuration file, '
+                            f'a dictionary of configuration, or a string of pre-defined configuration, '
+                            f'but got {cfg=} ({type(cfg)}).')
+    
         if weights is None:
             if chk is not None:
                 cfg.load_from = chk
@@ -367,15 +379,17 @@ class MMDETCORE():
             if os.path.exists(weights):
                 cfg.load_from = weights
             else:
-                raise FileNotFoundError('The model weights file does not exist.')
+                raise FileNotFoundError(f'The file of model weights ({weights}) does not exist. '
+                                        f'Please check the file path or the internet connection and try again.')
 
         cfg.launcher = 'none'
         cfg.resume = False
-        cfg = self.__set_classes(cfg, self.datalabel.labels)
+        cfg = self.__set_datalabel(cfg, self.datalabel.labels)
+        cfg.seed = seed if seed is not None else int(datetime.datetime.now(datetime.timezone.utc).timestamp())
         return  cfg
 
 
-    def __set_classes(self, cfg, class_labels):
+    def __set_datalabel(self, cfg, class_labels):
         def __set_cl(cfg, class_labels):
             for cfg_key in cfg:
                 if isinstance(cfg[cfg_key], dict):
@@ -409,73 +423,151 @@ class MMDETCORE():
             if not os.path.exists(workspace):
                 os.makedirs(workspace)
             self.cfg.work_dir = workspace
-        return tempd
+        return tempd, self.cfg.work_dir
 
 
     def train(self,
-              train,
-              valid=None,
-              test=None,
-              epoch=20,
-              optimizer=None,
-              scheduler=None):
-        """Train detection model
+              train: dict,
+              valid: dict|None=None,
+              test: dict|None=None,
+              epoch: int=20,
+              optimizer: dict|str|None=None,
+              scheduler: dict|str|None=None):
+        """Perform model training
 
-        Train model.
+        The model can be trained with just the training data,
+        but it is highly recommended to also provide validation and test data
+        to thoroughly evaluate the model's performance.
+        If validation data is provided,
+        the model's performance will be evaluated after each epoch,
+        and the metrics will be saved in the workspace.
+        This allows the user to monitor the model's progress and performance
+        throughout the training process.
+        Additionally, if test data is provided,
+        the model will undergo a final evaluation at the end of training,
+        and the test results will also be saved in the workspace.
+        The test can also be performed independently from the training process,
+        seed the :func:`test <cvtk.ml.mmdetutils.MMDETCORE.test>` method for more details.
 
         Args:
-            train (DataLoader): The path to the training dataset.
-            valid (DataLoader): The path to the validation dataset. Default is None.
-            test (DataLoader): The path to the test dataset. Default is None.
-            epoch (int): The number of epochs. Default is 20.
-            optimizer (dict): The optimizer configuration. Default is None.
-            scheduler (dict): The scheduler configuration. Default is None.
-        
+            train: A dictionary generated by DataLoader.
+            valid: A dictionary generated by DataLoader or None.
+            test: A dictionary generated by DataLoader or None.
+            epoch: The number of epochs.
+            optimizer: A dictionary of string indicating optimizer for training.
+            scheduler: A dictionary of string indicating scheduler for training.
+
+    Examples:
+        >>> from cvtk.ml.data import DataLabel
+        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE
+        >>> 
+        >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
+        >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
+        >>> weights = None # download from MMDetection repository
+        >>> workspace = '/path/to/workspace'
+        >>>
+        >>> model = MMDETCORE(datalabel, cfg, weights, workspace)
+        >>> 
+        >>> train = DataLoader('/path/to/train/coco.json', 'train')
+        >>> model.train(train, epoch=10)
+        >>> model.save('/path/to/model.pth')
+        >>>
+        >>>
+        >>> train = DataLoader('/path/to/train/coco.json', 'train')
+        >>> valid = DataLoader('/path/to/valid/coco.json', 'valid')
+        >>> test = DataLoader('/path/to/test/coco.json', 'test')
+        >>> model.train(train, valid, test, epoch=10)
+        >>> model.save('/path/to/model.pth')
         """
         self.cfg.device = self.device
         
         # training params
-        if optimizer is not None:
-            self.cfg.optim_wrapper = optimizer
-        if scheduler is not None:
-            self.cfg.param_scheduler = scheduler
+        self.__set_optimizer(optimizer)
+        self.__set_scheduler(scheduler)
         
         # datasets
         self.cfg.merge_from_dict(train)
         
         self.cfg.train_cfg.max_epochs = epoch
-        if valid is not None:
-            self.cfg.merge_from_dict(valid)
-        self.cfg.default_hooks.checkpoint.interval = 10
+        if valid is None:
+            valid = DataLoader(None, 'valid')
+        self.cfg.merge_from_dict(valid)
+        self.cfg.merge_from_dict(DataLoader(None, 'test')) # test after training
+        self.cfg.default_hooks.checkpoint.interval = 1000
 
         # training
         runner = mmengine.runner.Runner.from_cfg(self.cfg)
-        self.mmdet_log_dpath = os.path.join(self.cfg.work_dir, runner.timestamp)
+        self.mmdet_log_dpath = os.path.join(self.workspace, runner.timestamp)
         runner.train()
         del runner
-        self.save(os.path.join(self.cfg.work_dir, 'last_checkpoint.pth'))
+        self.save(os.path.join(self.workspace, 'last_checkpoint.pth'))
 
         # test
         if test is not None:
             self.cfg.merge_from_dict(test)
-            self.cfg.load_from = os.path.join(self.cfg.work_dir, 'last_checkpoint.pth')
+            self.cfg.load_from = os.path.join(self.workspace, 'last_checkpoint.pth')
             self.test_stats = self.test(test)
 
 
-    def test(self, test):
-        """Run test
+    def __set_optimizer(self, optimizer):
+        if optimizer is not None:
+            if isinstance(optimizer, dict):
+                opt_dict = optimizer
+            elif isinstance(optimizer, str) and optimizer.replace(' ', '') != '':
+                if optimizer[0] != '{' and optimizer[0:4] != 'dict':
+                    optimizer = 'dict(' + optimizer + ')'
+                opt_dict = eval(optimizer)
+            self.cfg.optim_wrapper = dict(optimizer=opt_dict, type='OptimWrapper')
+    
+
+    def __set_scheduler(self, scheduler):
+        if scheduler is not None:
+            if isinstance(scheduler, list) or isinstance(scheduler, tuple):
+                scheduler_dict = scheduler
+            elif isinstance(scheduler, str) and scheduler.replace(' ', '') != '':
+                if scheduler[0] == '[':
+                    pass
+                else:
+                    if scheduler[0] == '{' or scheduler[0:4] == 'dict':
+                        scheduler = '[' + scheduler + ']'
+                    else:
+                        scheduler = '[dict(' + scheduler + ')]'
+                scheduler_dict = eval(scheduler)
+            self.cfg.param_scheduler = scheduler_dict
+
+
+    def test(self, test:dict) -> dict:
+        """Validate the model with test data
         
-        Run test. The test will be performed in the last process of the training process.
-        However, use this method can run test independently from train.
+        This method is used to validate the model with test data.
+        The test data should be COCO format file containing the annotations
+        and converted to a dictionary withs :func:`DataLoader <cvtk.ml.mmdetutils.DataLoader>`.
+        The predicted annotations of test data will be stored in the workspace
+        with the names of :file:`test_outputs.pkl` in MMDetection format and
+        :file:`test_outputs.coco.json` in COCO format.
+        The performance metrics (e.g., mAP) will be returned as a dictionary.
 
         Args:
-            test (DataLoader): The path to the test dataset. Default is None.
-        
+            test: A file path to COCO format file containing test data.    
+
+        Examples:
+        >>> from cvtk.ml.data import DataLabel
+        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE
+        >>> 
+        >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
+        >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
+        >>> weights = '/path/to/model.pth'
+        >>>
+        >>> model = MMDETCORE(datalabel, cfg, weights, workspace)
+        >>> 
+        >>> test = DataLoader('/path/to/test/coco.json', 'test')
+        >>> metrics = model.test(test)
+        >>> print(metrics)
         """
         self.cfg.merge_from_dict(test)
         runner = mmengine.runner.Runner.from_cfg(self.cfg)
 
-        test_outputs = os.path.join(self.cfg.work_dir, 'test_outputs.pkl')
+        test_outputs = os.path.join(self.workspace, 'test_outputs.pkl')
         runner.test_evaluator.metrics.append(mmdet.evaluation.DumpDetResults(out_file_path=test_outputs))
         runner.test()
 
@@ -499,7 +591,7 @@ class MMDETCORE():
             })
 
             if 'pred_instances' in po:
-                imanns = self.__format_mmdet_output(po['img_path'], po['pred_instances'])
+                imanns = self.__format_mmdet_output(po['img_path'], po['pred_instances'], cutoff=0)
                 for j, imann in enumerate(imanns.annotations):
                     annid += 1
                     cocodict['annotations'].append({
@@ -530,8 +622,7 @@ class MMDETCORE():
                                      os.path.splitext(test_outputs)[0] + '.coco.json',
                                      iouType=iou_type)
         return self.test_stats
-        
-        
+    
     
     def __xyxy2xywh(self, bbox):
         x1, y1, x2, y2 = bbox
@@ -542,13 +633,16 @@ class MMDETCORE():
         return [x, y, w, h]
     
 
-    def save(self, output):
+    def save(self, output: str):
         """Save the model
 
-        Save the model.
+        Save the model. If training metrics and test results,
+        usually generated from training process,
+        are exists, they will be save in the same name of weights but
+        with the different suffixes.
 
         Args:
-            output (str): The path to the output file.
+            output: A path to store the model weights and configuration.
         
         """
         if not output.endswith('.pth'):
@@ -557,7 +651,7 @@ class MMDETCORE():
             if os.path.dirname(output) != '':
                 os.makedirs(os.path.dirname(output))
 
-        with open(os.path.join(self.cfg.work_dir, 'last_checkpoint')) as chkf:
+        with open(os.path.join(self.workspace, 'last_checkpoint')) as chkf:
             shutil.copy2(chkf.readline().strip(), output)
         
         cfg_fpath = os.path.splitext(output)[0] + '.py'
@@ -570,18 +664,18 @@ class MMDETCORE():
                 json.dump(self.test_stats, outfh, indent=4, ensure_ascii=False)
 
 
-
     def __write_trainlog(self, output_prefix=None):
         train_log = []
         valid_log = []
 
         log_fpath = os.path.join(self.mmdet_log_dpath, 'vis_data', 'scalars.json')
-        with open(log_fpath) as fh:
-            for log_data in fh:
-                if 'coco/bbox_mAP' in log_data:
-                    valid_log.append(log_data)
-                else:
-                    train_log.append(log_data)
+        if os.path.exists(log_fpath):
+            with open(log_fpath) as fh:
+                for log_data in fh:
+                    if 'coco/bbox_mAP' in log_data:
+                        valid_log.append(log_data)
+                    else:
+                        train_log.append(log_data)
             
         if len(train_log) > 0:
             (pd.DataFrame(json.loads('[' + ','.join(train_log) + ']'))
@@ -594,19 +688,27 @@ class MMDETCORE():
                 .to_csv(output_prefix + '.valid.txt', header=True, index=False, sep='\t'))
 
 
-
-    def inference(self, data, format='cvtk.Image', cutoff=0):
+    def inference(self, data: dict|str|list[str], cutoff: float=0) -> list[Image]:
         """Inference
 
         perform inference.
         
         Args:
-            dataloader (DataLoader): The dataloader configuration.
+            data: A path to a directory containing images,
+                a path to an image file, or a list of paths to image files.
             score_cutoff (float): The score cutoff for inference. Default is 0.5.
-        """
-        if format.lower() not in ['cvtk.image', 'coco', 'cvtk.json']:
-            raise ValueError('Invalid format: {}'.format(format))
 
+        Examples:
+            >>> test_images = ['sample1.jpg', 'sample2.jpg', 'sample3.jpg']
+            >>> outputs = model.inference(sample_images)
+            >>> for output in outputs:
+            >>>     bbox_img_fpath = os.path.splitext(output.file_path)[0] + '.bbox.png'
+            >>>     output.draw('bbox+segm', output=bbox_img_fpath)
+            >>>
+            >>> coco_json = model.inference(sample_images)
+            >>> with open('inference_results.json', 'w') as oufh:
+            >>>     json.dump(coco_json, outfh)
+        """
         input_images = []
         if isinstance(data, dict):
             # test dataloader defined by mmdet
@@ -629,15 +731,7 @@ class MMDETCORE():
         # format
         outputs_fmt = []
         for target_image, output in zip(input_images, pred_outputs):
-            output_fmt = self.__format_mmdet_output(target_image, output.pred_instances, cutoff)
-            if format.lower() == 'cvtk.json':
-                output_fmt = {
-                    'image': output_fmt.file_path,
-                    'annotations': json.loads(output_fmt.annotations.dump())
-                }
-            outputs_fmt.append(output_fmt)
-        if format.lower() == 'coco':
-            outputs_fmt = coco(self.datalabel, outputs_fmt)
+            outputs_fmt.append(self.__format_mmdet_output(target_image, output.pred_instances, cutoff))
 
         return outputs_fmt
     
@@ -670,10 +764,14 @@ class MMDETCORE():
                             x.append(os.path.join(root, f))
         elif isinstance(dataset, list) or isinstance(dataset, tuple):
             x = dataset
+        
+        if len(x) == 0:
+            raise ValueError('No image files found in the given dataset ({dataset}).')
+
         return x
     
     
-    def __format_mmdet_output(self, im_fpath, pred_instances, cutoff=0):
+    def __format_mmdet_output(self, im_fpath, pred_instances, cutoff):
         if 'bboxes' in pred_instances:
             if isinstance(pred_instances, dict):
                 pred_bboxes = pred_instances['bboxes'].detach().cpu().numpy().tolist()
@@ -721,58 +819,9 @@ class MMDETCORE():
                 pred_masks_.append(pred_masks[i])
                 pred_scores_.append(pred_scores[i])
 
-        imann = ImageAnnotation(pred_labels_, pred_bboxes_, pred_masks_, pred_scores_)
+        imann = Annotation(pred_labels_, pred_bboxes_, pred_masks_, pred_scores_)
         return Image(im_fpath, annotations=imann)
         
-
-
-def coco(datalabel, images):
-    """Change inference output to COCO format
-    
-    Args:
-        datalabel (DataLabel): The class.
-        images (list): The list of cvtk.Image objects.
-
-    """
-    coco = {'images': [], 'annotations': [], 'categories': []}
-
-    img_id = 0
-    ann_id = 0
-    cate_id = 0
-
-    for image in images:
-        img_id += 1
-        coco['images'].append({
-            'id': img_id,
-            'file_name': image.file_path,
-            'height': image.height,
-            'width': image.width
-        })
-        
-        for ann in image.annotations:
-            ann_id += 1
-            coco['annotations'].append({
-                'id': len(coco['annotations']),
-                'image_id': ann_id,
-                'category_id': datalabel[ann['label']],
-                'bbox': ann['bbox'],
-                'score': ann['score'],
-                'iscrowd': 0
-            })
-            if 'mask' in ann and ann['mask'] is not None:
-                m = pycocotools.mask.encode(np.asfortranarray(ann['mask']))
-                coco['annotations'][-1]['segmentation'] = {
-                    'size': m['size'],
-                    'counts': m['counts'].decode()
-                }
-
-    for cl in datalabel.labels:
-        cate_id += 1
-        coco['categories'].append({
-            'id': datalabel[cl],
-            'name': cl
-        })
-    return coco
 
 
 def plot_trainlog(train_log, y=None, output=None, title='Training Statistics', mode='lines', width=600, height=800, scale=1.9):
@@ -840,54 +889,6 @@ def plot_trainlog(train_log, y=None, output=None, title='Training Statistics', m
     return fig
 
 
-
-def draw_outlines(image_fpath, output_fpath, outlines, cutoff=0.5, col=None):
-    """Draw bbox and contour
-
-    Args:
-        image_fpath (str): The path to the image.
-        output_fpath (str): The path to the output image.
-        outlines (list): The list of outlines. Each element should be a dictionary with the following keys
-            - bbox: The bounding box coordinates. (required)
-            - class: The class label. (optional)
-            - contour: The contour coordinates. (optional)
-        col (dict): The color dictionary. Default is None.
-    """
-    font = PIL.ImageFont.load_default(10)
-
-    im = PIL.Image.open(image_fpath)
-    im = PIL.ImageOps.exif_transpose(im)
-    imdr = PIL.ImageDraw.Draw(im)
-
-    if col is None:
-        col = {}
-    
-    for outline in outlines:
-        if outline['score'] < cutoff:
-            continue
-        if 'label' in outline:
-            if outline['label'] not in col:
-                col[outline['label']] = (random.randint(0, 255),
-                                         random.randint(0, 255),
-                                         random.randint(0, 255))
-        else:
-            col['___UNDEF___'] = (random.randint(0, 255),
-                                  random.randint(0, 255),
-                                  random.randint(0, 255))
-        
-        x1, y1, x2, y2 = outline['bbox']
-        cl = outline['label'] if 'label' in outline else '___UNDEF___'
-        
-        imdr.rectangle([(x1, y1), (x2, y2)], outline = col[cl], width=5)
-        if 'mask' in outline and outline['mask'] is not None:
-            for contour in skimage.measure.find_contours(outline['mask'], 0.5):
-                imdr.line([tuple([c[1], c[0]]) for c in contour.tolist()], fill = col[cl], width=5)
-        if 'label' in outline:
-            imdr.text((x1, y1), cl, font=font)
-    im.save(output_fpath)
-
-
-
 def __generate_source(script_fpath, task, vanilla=False):
     if not script_fpath.endswith('.py'):
         script_fpath += '.py'
@@ -896,12 +897,12 @@ def __generate_source(script_fpath, task, vanilla=False):
     with open(importlib.resources.files('cvtk').joinpath('tmpl/_mmdet.py'), 'r') as infh:
         tmpl = infh.readlines()
 
-    if vanilla:
+    if vanilla is True:
         cvtk_modules = [
-            {'cvtk': [JsonComplexEncoder, ImageAnnotation, Image]},
+            {'cvtk': [JsonComplexEncoder, Annotation, Image, ImageDeck, imread]},
             {'cvtk.format.coco': [calc_stats]},
             {'cvtk.ml.data': [DataLabel]},
-            {'cvtk.ml.mmdetutils': [DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog, draw_outlines, coco]}
+            {'cvtk.ml.mmdetutils': [DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog]}
         ]
         tmpl = __insert_imports(tmpl, __get_imports(__file__))
         tmpl = __extend_cvtk_imports(tmpl, cvtk_modules)
