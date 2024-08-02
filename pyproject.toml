@@ -52,9 +52,9 @@ docs = [
     'cvtk[full]',
     'sphinx-rtd-theme',
     'sphinxcontrib-napoleon',
-    'torch == 2.1.0'
-    'mmcv >= 2.1.0',
-    'mmdet >= 3.3.0',
+    'torch == 2.1.0',
+    'mmcv == 2.1.0',
+    'mmdet == 3.3.0',
 ]
 
 
