@@ -1,5 +1,7 @@
 import os
 import re
+import random
+import copy
 import pathlib
 import glob
 import io
@@ -9,6 +11,8 @@ import json
 import PIL
 import PIL.Image
 import PIL.ImageOps
+import PIL.ImageDraw
+import PIL.ImageFont
 import numpy as np
 ImageSourceTypes = typing.Union[str, pathlib.Path, bytes, PIL.Image.Image, np.ndarray]
 
@@ -33,7 +37,7 @@ class JsonComplexEncoder(json.JSONEncoder):
             return super().default(obj)
 
 
-class ImageAnnotation():
+class Annotation():
     """A class to store image annotations including bounding boxes and masks
 
     The class store image annotations of the coordinates of bounding boxes,
@@ -41,17 +45,17 @@ class ImageAnnotation():
     The areas of bounding boxes or masks are automatically calculated from bouding boxes or masks and stored in this class.
 
     Args:
-        labels (list[str]): The labels for the bounding boxes or masks.
-        bboxes (list[list], list[tuple], None): The list of bounding boxes in the format of (x1, y1, x2, y2).
-        masks: (list[np.ndarray], None): NumPy array or 2-d list of maks.
-        scores: (list[float], None): The list of scores.
+        labels: The labels for the bounding boxes or masks.
+        bboxes: The list of bounding boxes in the format of (x1, y1, x2, y2).
+        masks: NumPy array or 2-d list of maks.
+        scores: The list of scores.
     
     Attributes:
-        labels (list[str]): The labels for the bounding boxes or masks.
-        bboxes (list[tuple], None): The list of bounding boxes in the format of (x1, y1, x2, y2).
-        masks (list[np.ndarray], None): NumPy array or 2-d list of maks.
-        scores (list[float], None): The list of scores.
-        areas (list[int], None): The list of areas of bounding boxes or masks.
+        labels: The labels for the bounding boxes or masks.
+        bboxes: The list of bounding boxes in the format of (x1, y1, x2, y2).
+        masks: NumPy array or 2-d list of maks.
+        scores: The list of scores.
+        areas: The list of areas of bounding boxes or masks.
 
     Examples:
         >>> labels = ['leaf', 'flower', 'root']
@@ -63,7 +67,7 @@ class ImageAnnotation():
         ...          np.random.randint(2, (240, 321)).tolist()]
         >>> scores = [0.9, 0.8, 0.7]
         >>>
-        >>> ann = ImageAnnotation(labels, bboxes, masks, scores)
+        >>> ann = Annotation(labels, bboxes, masks, scores)
         >>>
         >>> ann[0]
         {'label': 'leaf', 'bbox': (0, 0, 10, 10), 'mask': array([[0, 1, 0, ..., 0, 1, 0],
@@ -155,31 +159,12 @@ class ImageAnnotation():
         areas = []
         for bbox, mask in zip(self.__bboxes, self.__masks):
             if mask is not None:
-                areas.append(np.sum(mask))
+                areas.append(int(np.sum(mask)))
             elif bbox is not None:
                 areas.append((bbox[3] - bbox[1]) * (bbox[2] - bbox[0]))
             else:
                 areas.append(None)
         return areas
-
-
-    def dump(self, indent: int|None=None, ensure_ascii: bool=True) -> str:
-        """Dump the annotation data to string in JSON format.
-
-        Args:
-            indent (int): The indentation of the JSON string. Default is `None`.
-            ensure_ascii (bool): Ensure the string is ASCII. Default is `True`.
-
-        Returns:
-            str: JSON string of the annotation data.
-
-        Examples:
-            >>> ann = ImageAnnotation(['leaf', 'flower', 'root'], [[0, 0, 10, 10], [10, 10, 20, 20], [20, 20, 30, 30]])
-            >>> ann.dump()
-            '[{"label": "leaf", "bbox": [0, 0, 10, 10], "mask": null, "score": null, "area": 100}, {"label": "flower", "bbox": [10, 10, 20, 20], "mask": null, "score": null, "area": 100}, {"label": "root", "bbox": [20, 20, 30, 30], "mask": null, "score": null, "area": 100}]'
-        """
-        ann_dict = [self[i] for i in range(len(self))]
-        return json.dumps(ann_dict, cls=JsonComplexEncoder, indent=indent, ensure_ascii=ensure_ascii)
     
     
     @property
@@ -200,26 +185,25 @@ class ImageAnnotation():
     @property
     def scores(self) -> list[float]:
         return self.__scores
-
-
-    def label(self, i: int) -> str:
-        """Get the label of the annotation at the given index"""
-        return self.__labels[i]
     
     
-    def bbox(self, i: int) -> tuple:
-        """Get the bounding box of the annotation at the given index"""
-        return self.__bboxes[i]
-    
+    def dump(self, indent: int|None=None, ensure_ascii: bool=True) -> str:
+        """Dump the annotation data to string in JSON format.
 
-    def mask(self, i: int) -> np.ndarray:
-        """Get the mask of the annotation at the given index"""
-        return self.__masks[i]
-    
+        Args:
+            indent (int): The indentation of the JSON string. Default is `None`.
+            ensure_ascii (bool): Ensure the string is ASCII. Default is `True`.
 
-    def score(self, i: int) -> float:
-        """Get the score of the annotation at the given index"""
-        return self.__scores[i]
+        Returns:
+            str: JSON string of the annotation data.
+
+        Examples:
+            >>> ann = ImageAnnotation(['leaf', 'flower', 'root'], [[0, 0, 10, 10], [10, 10, 20, 20], [20, 20, 30, 30]])
+            >>> ann.dump()
+            '[{"label": "leaf", "bbox": [0, 0, 10, 10], "mask": null, "score": null, "area": 100}, {"label": "flower", "bbox": [10, 10, 20, 20], "mask": null, "score": null, "area": 100}, {"label": "root", "bbox": [20, 20, 30, 30], "mask": null, "score": null, "area": 100}]'
+        """
+        ann_dict = [self[i] for i in range(len(self))]
+        return json.dumps(ann_dict, cls=JsonComplexEncoder, indent=indent, ensure_ascii=ensure_ascii)
 
 
 
@@ -229,16 +213,15 @@ class Image():
     The class store image data and annotations including bounding boxes and masks.
 
     Args:
-        source (str) The path to the image file.
-        annotations (ImageAnnotation): The annotations for the image.
+        source: The path to the image file.
+        annotations: The annotations for the image.
     
     Attributes:
-        file_path (str): The path to the image file.
-        im (PIL.Image.Image): The image data.
-        annotations (ImageAnnotation): The annotations for the image.
-        size (tuple): The size of the image (width, height).
-        width (int): The width of the image.
-        height (int): The height of the image.
+        file_path: The path to the image file.
+        annotations: The annotations for the image.
+        size: The size of the image (width, height).
+        width: The width of the image.
+        height: The height of the image.
     
     Examples:
         >>> im = Image('image.jpg')
@@ -259,28 +242,298 @@ class Image():
         <cvtk.base.ImageAnnotation object at 0x7f9d5f4b0f10>
         >>>
     """
-    def __init__(self, source, annotations: ImageAnnotation=None):
-        self.file_path = source
-        self.im = PIL.ImageOps.exif_transpose(PIL.Image.open(source))
-        self.annotations = annotations
-    
+    def __init__(self, source, annotations: Annotation|None=None):
+        im = imread(source)
+        self.__source = source
+        self.__size = im.size
+        self.__width = im.width
+        self.__height = im.height
+        self.__annotations = annotations
+
+
+    @property
+    def source(self):
+        return self.__source
+
+
     @property
     def size(self):
-        return self.im.size
+        return self.__size
     
+
     @property
     def width(self):
-        return self.im.width
+        return self.__width
+    
     
     @property
     def height(self):
-        return self.im.height
+        return self.__height
+
+
+    @property
+    def annotations(self):
+        return self.__annotations
+
+
+    def draw(self,
+             format: str='bbox',
+             output: str|None=None,
+             cutoff: float=0.5,
+             label: bool=True,
+             score: bool=True,
+             font: PIL.ImageFont.ImageFont|None=None,
+             col: dict|None=None) -> PIL.Image.Image:
+        """Plot an image with annotations
+        
+        Plot an image with annotations including bounding boxes and masks.
+
+        Args:
+            format: The format of the annotations to plot. Default is 'bbox'.
+                Options are 'bbox', 'segm', 'mask'.
+            output: The path to save the plotted image. Default is None.
+            cutoff: The cutoff score to plot the annotations. Default is 0.5.
+            label: Whether to plot the labels. Default is True.
+            score: Whether to plot the scores. Default is True.
+            cols: The color dictionary for the annotations. Default is None.
+        """
+        import skimage.measure
+
+        im = imread(self.__source)
+        imdraw = PIL.ImageDraw.Draw(im)
+
+        if font is None:
+            font = PIL.ImageFont.load_default(max([10, int(im.height / 50), int(im.width / 50)]))
+        if col is None:
+            col = {'___UNDEF___': (random.randint(0, 255),
+                                   random.randint(0, 255),
+                                   random.randint(0, 255))}
+        outline_width = max([5, int(im.height / 200), int(im.width / 200)])
+
+        for ann in self.__annotations:
+            if ('score' in ann) and (ann['score'] < cutoff):
+                continue
+
+            cl = '___UNDEF___'
+            if 'label' in ann:
+                cl = ann['label']
+                if cl not in col:
+                    col[cl] = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+            
+            if ('bbox' in format) and ('bbox' in ann) and (ann['bbox'] is not None):
+                x1, y1, x2, y2 = ann['bbox']
+                imdraw.rectangle([(x1, y1), (x2, y2)], outline = col[cl], width=outline_width)
+
+            if ('segm' in format) and ('mask' in ann) and (ann['mask'] is not None):
+                for contour in skimage.measure.find_contours(ann['mask'], 0.5):
+                    imdraw.line([tuple([c[1], c[0]]) for c in contour.tolist()], fill = col[cl], width=outline_width)
+
+            if ('mask' in format) and ('mask' in ann) and (ann['mask'] is not None):
+                mask = copy.deepcopy(ann['mask'])
+                im = PIL.Image.fromarray((mask * 255).astype(np.uint8))
+            
+            if ('rgbmask' in format) and ('mask' in ann) and (ann['mask'] is not None):
+                mask = np.zeros((im.size[1], im.size[0], 3))
+                for i in range(3):
+                    mask[:, :, i][ann['mask'] > 0] = col[cl][i]
+                im = PIL.Image.fromarray(mask.astype(np.uint8))
+
+            if label and ('label' in ann):
+                cl_ = ann['label']
+                if score and ('score' in ann):
+                    cl_ = f"{ann['label']} ({ann['score']:.2f})"
+                x1, y1, x2, y2 = ann['bbox']
+                imdraw.text((x1 + int(outline_width * 1.5), y1), cl_, font=font, fill=col[cl])
+
+        if output is not None:
+            im.save(output)
+        return im
 
 
 
+class ImageDeck():
+    """A class to store a deck of images
+    
+    The class store a deck of images and annotations including bounding boxes and masks.
+
+    Args:
+        images: The list of images.
+
+    """
+
+    def __init__(self, images: Image|list[Image]):
+        self.images = images
+
+        if isinstance(images, Image):
+            self.images = [images]
+        elif isinstance(images, ImageDeck):
+            self.images = copy.deepcopy(images.images)
+        elif isinstance(images, (list, tuple)):
+            for i, im in enumerate(images):
+                if not isinstance(im, Image):
+                    raise ValueError(f'Invalid image at index {i}.')
+            self.images = images
+        else:
+            raise ValueError(f'ImageDeck only receives Image or list of Image object.')
+
+        self.__i = 0
+
+    
+    def __iter__(self):
+        return self
+    
+
+    def __next__(self):
+        if self.__i < len(self):
+            i = self.__i
+            self.__i += 1
+            return self[i]
+        else:
+            self.__i = 0
+            raise StopIteration()
+
+    
+    def __len__(self):
+        return len(self.images)
+    
+
+    def __getitem__(self, i):
+        return self.images[i]
+    
+
+    def append(self, image: Image):
+        """Append an image to the deck
+        
+        """
+        if not isinstance(image, Image):
+            raise ValueError(f'Invalid image.')
+        self.images.append(image)
 
 
-def imread(source: ImageSourceTypes,
+    def extend(self, images: Image|list[Image]):
+        """Extend images to the deck
+        
+        """
+        if isinstance(images, Image):
+            self.images.append(images)
+        elif isinstance(images, (list, tuple)):
+            for i, im in enumerate(images):
+                if not isinstance(im, Image):
+                    raise ValueError(f'Invalid image at index {i}.')
+            self.images.extend(images)
+        else:
+            raise ValueError(f'Invalid image deck.')
+    
+    
+    def format(self, format: str='cvtk', datalabel: str|None=None) -> dict:
+        """Format the images in the deck
+        
+        """
+
+        if format.lower() == 'cvtk':
+            deck_dict = self.__format_cvtk()
+        elif format.lower() == 'coco':
+            deck_dict = self.__format_coco(datalabel)
+        #elif format.lower() in ['voc', 'pascal', 'xml']:
+        #    deck_dict = self.__format_voc()
+        else:
+            raise ValueError(f'Invalid format "{format}".')
+        
+        return deck_dict
+    
+
+    def dump(self, output: str, format: str='cvtk', datalabel: str|None=None, indent: int|None=None, ensure_ascii: bool=True):
+        """Dump the images in the deck to a file
+        
+        """
+
+        deck_dict = self.format(format, datalabel)
+        with open(output, 'w') as fh:
+            json.dump(deck_dict, fh, ensure_ascii=ensure_ascii, indent=indent, cls=JsonComplexEncoder)
+
+
+    def __format_cvtk(self) -> dict:
+        images = []
+        for i, im in enumerate(self.images):
+            images.append({
+                'file_path': im.source,
+                'annotations': [ann for ann in im.annotations]
+            })
+        return {'data': images}
+
+
+    def __format_coco(self, datalabel) -> dict:
+        import pycocotools
+        import pycocotools.mask
+
+        images = []
+        annotations = []
+        categories = []
+        cate2id = {}
+
+        cate_id = 0
+        if datalabel is not None:
+            for label in datalabel:
+                cate_id += 1
+                cate2id[label] = cate_id
+                categories.append({
+                    'id': cate_id,
+                    'name': label
+                })
+        else:
+            cate_ = set()
+            for im in self.images:
+                for ann in im.annotations:
+                    if 'label' in ann:
+                        cate_.add(ann['label'])
+            for label in sorted(cate_):
+                cate_id += 1
+                cate2id[label] = cate_id
+                categories.append({
+                    'id': cate_id,
+                    'name': label
+                })
+
+        img_id = 0
+        ann_id = 0
+        for im in self.images:
+            img_id += 1
+            images.append({
+                'file_name': os.path.basename(im.source),
+                'height': im.height,
+                'width': im.width,
+                'id': img_id
+            })
+            for ann in im.annotations:
+                ann_id += 1
+                annotations.append({
+                    'id': ann_id,
+                    'image_id': img_id,
+                    'category_id': cate2id[ann['label']],
+                    'bbox': self.__xyxy2xywh(ann['bbox']),
+                    'score': ann['score'],
+                    'area': ann['area'],
+                    'iscrowd': 0
+                })
+                if 'mask' in ann and ann['mask'] is not None:
+                    rle_mask = pycocotools.mask.encode(np.asfortranarray(ann['mask']).astype(np.uint8))
+                    annotations[-1]['segmentation'] = {
+                        'size': rle_mask['size'],
+                        'counts': rle_mask['counts'].decode()
+                    }
+        
+        return {'images': images, 'annotations': annotations, 'categories': categories}
+
+
+    def __xyxy2xywh(self, bbox):
+        return [bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]]
+
+
+#    def __format_voc(self) -> dict:
+#        pass
+
+
+def imread(source,
            exif_transpose: bool=True,
            req_timeout: int=60) -> PIL.Image.Image:
     """Open image from various sources

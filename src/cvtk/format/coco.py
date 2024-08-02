@@ -5,7 +5,7 @@ import random
 from cvtk import JsonComplexEncoder
 
 
-def merge(input: str|list[str], output: str|None=None, ensure_ascii: bool=False, indent: int|None=4) -> dict:
+def combine(input: str|list[str], output: str|None=None, ensure_ascii: bool=False, indent: int|None=4) -> dict:
     """Merge multiple COCO annotation files into one file.
 
     The function will merge the images, annotations, and categories
