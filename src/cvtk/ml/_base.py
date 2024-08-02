@@ -2,33 +2,30 @@ import os
 import shutil
 import importlib
 import random
+import copy
 import re
 from .torchutils import __generate_source as generate_source_cls
 from .mmdetutils import __generate_source as generate_source_det
 from ._subutils import __estimate_task_from_source, __generate_app_html_tmpl
 
 
-def split_dataset(data: str|list,
-                  label: list|None=None,
-                  ratios: list[float]=[0.8, 0.1, 0.1],
-                  balanced: bool=True,
+def split_dataset(data: str|list[str, str]|tuple[str, str],
+                  output: str|None=None,
+                  ratios: list[float]|tuple[float]=[0.8, 0.1, 0.1],
                   shuffle: bool=True,
-                  random_seed: int|None=None) -> list|tuple[list, list]:
+                  stratify: bool=True,
+                  random_seed: int|None=None) -> list[list]:
     """Split a dataset into multiple subsets with the given ratios
 
     Split a dataset into multiple subsets with the given ratios.
     
-    
     Args:
-        data (str|list): The dataset to split. The input can be a list of data (e.g., images)
+        data: The dataset to split. The input can be a list of data (e.g., images)
             or a path to a text file. If list is given, each element of the list is treated as a sample.
-        labels (list): The labels corresponding to the `data`. Spliting with a balanced class distribution
-            is only supported when `labels` is given. If `data` is a path to a text file,
-            the function will try to load values in the second column as labels
-            corresponding to the image data written in first column.
-        ratios (list): The ratios to split the dataset. The sum of the ratios should be 1.
-        balanced (bool): Split the dataset with a balanced class distribution if `label` is given.
+        output: The output file name will be appended with the index of the split subset.
+        ratios: The ratios to split the dataset. The sum of the ratios should be 1.
         shuffle (bool): Shuffle the dataset before splitting.
+        stratify (bool): Split the dataset with a balanced class distribution if `label` is given.
         random_seed (int|none): Random seed for shuffling the dataset.
 
     Returns:
@@ -37,14 +34,16 @@ def split_dataset(data: str|list,
     Examples:
         >>> from cvtk.ml import split_dataset
         >>> 
-        >>> data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        >>> labels = [0, 1, 0, 1, 0, 1, 0, 1, 0, 1]
-        >>> train_data, val_data, test_data, train_labels, val_labels, test_labels = split_dataset(data, labels)
+        >>> subsets = split_dataset('data.txt', ratios=[0.8, 0.1, 0.1])
+        >>> len(subsets)
+        3
     """
-    data_from_file = False
+    if abs(1.0 - sum(ratios)) > 1e-10:
+        raise ValueError('The sum of `ratios` should be 1.')
+
+    data_ = []
+    label_ = []
     if isinstance(data, str):
-        data_ = []
-        label_ = []
         with open(data, 'r') as infh:
             for line in infh:
                 line = line.strip()
@@ -52,57 +51,65 @@ def split_dataset(data: str|list,
                 data_.append(line)
                 if len(m) > 1:
                     label_.append(m[1])
-        data = data_
-        if len(label_) > 0:
-            label = label_
-        data_from_file = True
+    elif isinstance(data, (list, tuple)):
+        for d in data:
+            data_.append(d)
+            if len(d) > 1:
+                label_.append(d[1])
+    else:
+        raise ValueError('The input data should be a list or a path to a text file.')
+    data = data_
+    label = label_
 
-    if label is not None and len(data) != len(label):
-        raise ValueError('The length of `data` and `labels` should be the same.')
-    if abs(1.0 - sum(ratios)) > 1e-10:
-        raise ValueError('The sum of `ratios` should be 1.')
     ratios_cumsum = [0]
     for r in ratios:
         ratios_cumsum.append(r + ratios_cumsum[-1])
     ratios_cumsum[-1] = 1.0
-    
-    dclasses = {}
-    if label is not None:
-        for i, label in enumerate(label):
-            if label not in dclasses:
-                dclasses[label] = []
-            dclasses[label].append(data[i])
-    else:
-        dclasses['__ALLCLASSES__'] = data
-    
+
+    # shuflle data
     if shuffle:
         if random_seed is not None:
             random.seed(random_seed)
-        for cl in dclasses:
-            random.shuffle(dclasses[cl])
+        idx = list(range(len(data)))
+        random.shuffle(idx)
+        data = [data[i] for i in idx]
+        if len(label) > 0:
+            label = [label[i] for i in idx]
     
+    # group data by label
+    datadict = {}
+    if stratify and len(label) > 0:
+        for i, label in enumerate(label):
+            if label not in datadict:
+                datadict[label] = []
+            datadict[label].append(data[i])
+    
+    # split data
     data_subsets = []
     label_subsets = []
     for i in range(len(ratios)):
         data_subsets.append([])
         label_subsets.append([])
-        if balanced:
-            for cl in dclasses:
-                n_samples = len(dclasses[cl])
+        if len(datadict) > 0:
+            for cl in datadict:
+                n_samples = len(datadict[cl])
                 n_splits = [int(n_samples * r) for r in ratios_cumsum]
-                data_subsets[i] += dclasses[cl][n_splits[i]:n_splits[i + 1]]
+                data_subsets[i] += datadict[cl][n_splits[i]:n_splits[i + 1]]
                 label_subsets[i] += [cl] * (n_splits[i + 1] - n_splits[i])
         else:
             n_samples = len(data)
             n_splits = [int(n_samples * r) for r in ratios_cumsum]
             data_subsets[i] = data[n_splits[i]:n_splits[i + 1]]
-            if label is not None:
-                label_subsets[i] = label[n_splits[i]:n_splits[i + 1]]
+
+    if output is not None:
+        for i in range(len(data_subsets)):
+            with open(f'{output}.{i}', 'w') as fh:
+                for data_record in data_subsets[i]:
+                    if isinstance(data_record, (list, tuple)):
+                        data_record = '\t'.join(data_record)
+                    fh.write(data_record + '\n')
     
-    if data_from_file or (label is None):
-        return data_subsets
-    else:
-        return data_subsets, label_subsets
+    return data_subsets
 
 
 
