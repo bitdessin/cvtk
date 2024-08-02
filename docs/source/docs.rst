@@ -6,10 +6,10 @@ API Reference
     :maxdepth: 2
     
     docs/cvtk
-    docs/cvtk.ml.utils
+    docs/cvtk.format.coco
+    docs/cvtk.ml
     docs/cvtk.ml.data
     docs/cvtk.ml.torchutils
     docs/cvtk.ml.mmdetutils
-    docs/cvtk.coco
 
 

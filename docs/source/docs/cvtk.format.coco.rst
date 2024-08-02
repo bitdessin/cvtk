@@ -1,13 +1,12 @@
-cvtk.ml.utils
-#############
+cvtk.format.coco
+################
 
 
-.. automodule:: cvtk.ml.utils
+.. automodule:: cvtk.format.coco
     :noindex:
     :members:
     :no-undoc-members:
     :member-order: bysource
-
 
 
 

@@ -29,7 +29,7 @@ and creating `FastAPI <https://fastapi.tiangolo.com/ja/>`_ applications for thes
 the **cvtk** with full dependencies should be installed.
 
 The **cvtk** with full dependencies requires **torch** package (`PyTorch <https://pytorch.org/>`_) version 2.0.0 or later
-and **mmdet** package (`MMDetection <https://mmdetection.readthedocs.io/en/latest/>_`) version 3.0.0 or later.
+and **mmdet** package (`MMDetection <https://mmdetection.readthedocs.io/en/latest/>`_) version 3.0.0 or later.
 It is recommended that the **torch** and **mmdet** packages be installed manually prior to installation.
 This is because these packages depend on the operating system (OS) and CUDA version
 and cannot be installed automatically.

@@ -119,6 +119,15 @@ through a web page by visiting http://localhost:8080.
     uvicorn main:app --host 0.0.0.0 --port 8080
 
 
+
+.. image:: ../_static/demoapp.det.jpg
+    :width: 85%
+    :align: center
+
+
+
+
+
 If you want to generate source code that is independent of the **cvtk** package,
 specify the ``--vanilla`` option when executing the ``cvtk app`` command:
 
