@@ -48,6 +48,7 @@ def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
     pred_outputs = model.inference(data)
 
     for im in pred_outputs:
+        set.seed(1) # restrict to generate same random color for each class in each image
         im.draw(format='bbox+segm',
                 output=os.path.join(output, os.path.basename(im.source)))
     
@@ -57,11 +58,11 @@ def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
 
 
 def _train(args):
-    train(args.label, args.train, args.valid, args.test, args.output_weights)
+    train(args.label, args.train, args.valid, args.test, args.output_weights, args.batch_size, args.num_workers, args.epoch)
 
     
 def _inference(args):
-    inference(args.label, args.data, args.model_weights, args.output)
+    inference(args.label, args.data, args.model_weights, args.output, args.batch_size, args.num_workers)
 
 
 
@@ -76,6 +77,9 @@ if __name__ == '__main__':
     parser_train.add_argument('--valid', type=str, required=False, default=None)
     parser_train.add_argument('--test', type=str, required=False, default=None)
     parser_train.add_argument('--output_weights', type=str, required=True)
+    parser_train.add_argument('--batch_size', type=int, default=2)
+    parser_train.add_argument('--num_workers', type=int, default=8)
+    parser_train.add_argument('--epoch', type=int, default=10)
     parser_train.set_defaults(func=_train)
 
     parser_inference = subparsers.add_parser('inference')
@@ -83,6 +87,8 @@ if __name__ == '__main__':
     parser_inference.add_argument('--data', type=str, required=True)
     parser_inference.add_argument('--model_weights', type=str, required=True)
     parser_inference.add_argument('--output', type=str, required=False)
+    parser_inference.add_argument('--batch_size', type=int, default=2)
+    parser_inference.add_argument('--num_workers', type=int, default=8)
     parser_inference.set_defaults(func=_inference)
 
     args = parser.parse_args()

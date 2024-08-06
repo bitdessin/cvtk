@@ -49,7 +49,7 @@ from ._subutils import __del_docstring, __get_imports, __insert_imports, __exten
 logger = logging.getLogger(__name__)
 
 
-def DataPipeline(is_train: bool=False, with_bbox: bool=True, with_mask: bool=False) -> list[dict]:
+class DataPipeline():
     """Generate image preprocessing pipeline
 
     This class provides the basic image preprocessing pipeline used in MMDetection.
@@ -59,49 +59,50 @@ def DataPipeline(is_train: bool=False, with_bbox: bool=True, with_mask: bool=Fal
         with_bbox: Whether the dataset contains bounding boxes.
             Default is True for object detection with bounding boxes only.
         with_mask: Whether the dataset contains masks. Default is False.
-
-    Attributes:
-        train: The image preprocessing pipeline for training.
-        valid: The image preprocessing pipeline for validation.
-        test: The image preprocessing pipeline for testing. Same to the valid.
-        inference: The image preprocessing pipeline for inference. Same to the valid.
     """
-    if is_train:
-        return [
-            dict(type='LoadImageFromFile',
-                 backend_args=None),
-            dict(type='LoadAnnotations',
-                 with_bbox=with_bbox,
-                 with_mask=with_mask),
-            dict(type='Resize',
-                 scale=(1333, 800),
-                 keep_ratio=True),
-            dict(type='RandomFlip',
-                 prob=0.5),
-            dict(type='PackDetInputs')
-        ]
-    else:
-        return [
-            dict(type='LoadImageFromFile',
-                 backend_args=None),
-            dict(type='LoadAnnotations',
-                 with_bbox=with_bbox,
-                 with_mask=with_mask),
-            dict(type='Resize',
-                 scale=(1333, 800),
-                 keep_ratio=True),
-            dict(
-                type='PackDetInputs',
-                meta_keys=('img_id',
-                           'img_path',
-                           'ori_shape',
-                           'img_shape',
-                           'scale_factor'))
-        ]
+    def __init__(self, is_train: bool=False, with_bbox: bool=True, with_mask: bool=False):
+        self.__cfg = None
+
+        if is_train:
+            self.__cfg = [
+                dict(type='LoadImageFromFile',
+                    backend_args=None),
+                dict(type='LoadAnnotations',
+                    with_bbox=with_bbox,
+                    with_mask=with_mask),
+                dict(type='Resize',
+                    scale=(1333, 800),
+                    keep_ratio=True),
+                dict(type='RandomFlip',
+                    prob=0.5),
+                dict(type='PackDetInputs')
+            ]
+        else:
+            self.__cfg = [
+                dict(type='LoadImageFromFile',
+                    backend_args=None),
+                dict(type='LoadAnnotations',
+                    with_bbox=with_bbox,
+                    with_mask=with_mask),
+                dict(type='Resize',
+                    scale=(1333, 800),
+                    keep_ratio=True),
+                dict(
+                    type='PackDetInputs',
+                    meta_keys=('img_id',
+                            'img_path',
+                            'ori_shape',
+                            'img_shape',
+                            'scale_factor'))
+            ]
+
+
+    @property
+    def cfg(self):
+        return self.__cfg
 
     
-
-def Dataset(datalabel: DataLabel, dataset: str|list[str]|dict|None, pipeline: list[dict]|None=None, repeat_dataset: bool=False):
+class Dataset():
     """Generate dataset configuration
 
     This function generates the dataset configuration for MMDetection.
@@ -112,149 +113,166 @@ def Dataset(datalabel: DataLabel, dataset: str|list[str]|dict|None, pipeline: li
             a path to a directory containing images,
             a path to an image file, or a list of paths to image files.
             Note that, for training, validation, and test, the COCO format file is required.
-        pipeline: The image preprocessing pipeline.
+        pipeline: A DataPipeline class object.
         repeat_dataset: Whether to repeat the dataset. Default is False.
             Use the repeated dataset for training will be faster in some architecture.
         
     """
-    if dataset is None:
-        return None
-    elif isinstance(dataset, str) and dataset.endswith('.json'):
-        dataset = dict(
-            metainfo=dict(classes=datalabel.labels),
-            type='CocoDataset',
-            data_root='',
-            data_prefix=dict(img=''),
-            ann_file=os.path.abspath(dataset),
-            pipeline=pipeline,
-        )
-        if repeat_dataset:
-            dataset = dict(
-                type='RepeatDataset',
-                times=1,
-                dataset=dataset
+    def __init__(self, datalabel: DataLabel, dataset: str|list[str]|dict|None, pipeline: DataPipeline|None=None, repeat_dataset: bool=False):
+        self.__cfg = None
+        if pipeline is None:
+            pipeline = DataPipeline()
+
+        if dataset is None:
+            self.__cfg = None
+        elif isinstance(dataset, str) and dataset.endswith('.json'):
+            self.__cfg = dict(
+                metainfo=dict(classes=datalabel.labels),
+                type='CocoDataset',
+                data_root='',
+                data_prefix=dict(img=''),
+                ann_file=os.path.abspath(dataset),
+                pipeline=pipeline.cfg,
             )
-    elif isinstance(dataset, (list, tuple)):
-        dataset = dict(
-            metainfo=dict(classes=datalabel.labels),
-            type='CocoDataset',
-            pipeline=pipeline,
-            data_root=dataset
-        )
-    elif isinstance(dataset, str):
-        dataset = dict(
-            metainfo=dict(classes=datalabel.labels),
-            type='CocoDataset',
-            pipeline=pipeline,
-            data_root=os.path.abspath(dataset)
-        )
-    elif isinstance(dataset, dict):
-        pass
-    else:
-        raise TypeError(f'Invalid type: {type(dataset)}')
-    return dataset
+            if repeat_dataset:
+                self.__cfg = dict(
+                    type='RepeatDataset',
+                    times=1,
+                    dataset=self.__cfg
+                )
+        elif isinstance(dataset, (list, tuple)):
+            self.__cfg = dict(
+                metainfo=dict(classes=datalabel.labels),
+                type='CocoDataset',
+                pipeline=pipeline.cfg,
+                data_root=dataset
+            )
+        elif isinstance(dataset, str):
+            self.__cfg = dict(
+                metainfo=dict(classes=datalabel.labels),
+                type='CocoDataset',
+                pipeline=pipeline.cfg,
+                data_root=os.path.abspath(dataset)
+            )
+        elif isinstance(dataset, dict):
+            self.__cfg = dataset
+        else:
+            raise TypeError(f'Invalid type: {type(dataset)}')
+    
+    @property
+    def cfg(self):
+        return self.__cfg
 
 
-def DataLoader(dataset: dict|None=None, phase: str='inference', batch_size: int=4, num_workers: int=4) -> dict:
+class DataLoader():
     """Generate dataloader configuration
 
     This function generates the dataloader configuration for MMDetection.
 
     Args:
-        dataset: A dictionary of dataset configuration.
+        dataset: A Dataset class object.
         phase: The purpose of DataLoader usage. It shold be specified as one
             'train', 'valie', 'test', and 'inference'.
         batch_size (int): Batch size.
         num_workers (int): Number of threads for data preprocessing and loading.
     """
-    metrics = ['bbox']
-    if dataset is not None:
-        if 'pipeline' in dataset:
-            for pp in dataset['pipeline']:
-                if pp['type'] == 'LoadAnnotations':
-                    if 'with_mask' in pp and pp['with_mask']:
-                        metrics.append('segm')
-    
-    if phase == 'train':
+    def __init__(self, dataset: Dataset|None=None, phase: str='inference', batch_size: int=4, num_workers: int=4):
+        self.__cfg = None
+
         if dataset is None:
-            raise ValueError('The dataset configuration is required for training, but got None.')
-        else:
-            return dict(
-                dataset_type='CocoDataset',
-                train_dataloader=dict(
-                    batch_size=batch_size,
-                    num_workers=num_workers,
-                    dataset=dataset,
-                ),
-                train_cfg = dict(
-                    type='EpochBasedTrainLoop',
-                    max_epochs=12,
-                    val_interval=1,
-                ),
-            )
-    elif phase == 'valid':
-        if dataset is None:
-            return dict(
-                    val_dataloader=None,
-                    val_cfg=None,
-                    val_evaluator=None)
-        else:
-            return dict(
-                    val_dataloader=dict(
+            dataset = Dataset(DataLabel([]), None)
+
+        metrics = ['bbox']
+        if dataset.cfg is not None:
+            if 'pipeline' in dataset.cfg:
+                for pp in dataset.cfg['pipeline']:
+                    if pp['type'] == 'LoadAnnotations':
+                        if 'with_mask' in pp and pp['with_mask']:
+                            metrics.append('segm')
+        
+        if phase == 'train':
+            if dataset.cfg is None:
+                raise ValueError('The dataset configuration is required for training, but got None.')
+            else:
+                self.__cfg = dict(
+                    dataset_type='CocoDataset',
+                    train_dataloader=dict(
+                        batch_size=batch_size,
+                        num_workers=num_workers,
+                        dataset=dataset.cfg,
+                    ),
+                    train_cfg = dict(
+                        type='EpochBasedTrainLoop',
+                        max_epochs=12,
+                        val_interval=1,
+                    ),
+                )
+        elif phase == 'valid':
+            if dataset.cfg is None:
+                self.__cfg = dict(
+                        val_dataloader=None,
+                        val_cfg=None,
+                        val_evaluator=None)
+            else:
+                self.__cfg = dict(
+                        val_dataloader=dict(
+                            _delete_=True,
+                            batch_size=batch_size,
+                            num_workers=num_workers,
+                            dataset=dataset.cfg,
+                            drop_last=False,
+                            sampler=dict(type='DefaultSampler', shuffle=False)
+                        ),
+                        val_cfg = dict(
+                            _delete_=True,
+                            type='ValLoop'),
+                        val_evaluator = dict(
+                            _delete_=True,
+                            type='CocoMetric',
+                            ann_file=dataset.cfg['ann_file'],
+                            metric=metrics,
+                            backend_args=None
+                        )
+                    )
+        elif phase == 'test':
+            if dataset.cfg is None:
+                self.__cfg = dict(
+                        test_dataloader=None,
+                        test_cfg=None,
+                        test_evaluator=None)
+            else:
+                self.__cfg = dict(
+                        test_dataloader=dict(
+                            _delete_=True,
+                            batch_size=batch_size,
+                            num_workers=num_workers,
+                            dataset=dataset.cfg,
+                            drop_last=False,
+                            sampler=dict(type='DefaultSampler', shuffle=False)
+                        ),
+                        test_cfg = dict(
+                            _delete_=True,
+                            type='TestLoop'),
+                        test_evaluator = dict(
+                            _delete_=True,
+                            type='CocoMetric',
+                            ann_file=dataset.cfg['ann_file'],
+                            metric=metrics,
+                            backend_args=None
+                        )
+                    )
+        else: # other cases, e.g., inference
+            self.__cfg = dict(test_dataloader=dict(
                         _delete_=True,
                         batch_size=batch_size,
                         num_workers=num_workers,
-                        dataset=dataset,
                         drop_last=False,
-                        sampler=dict(type='DefaultSampler', shuffle=False)
-                    ),
-                    val_cfg = dict(
-                        _delete_=True,
-                        type='ValLoop'),
-                    val_evaluator = dict(
-                        _delete_=True,
-                        type='CocoMetric',
-                        ann_file=dataset['ann_file'],
-                        metric=metrics,
-                        backend_args=None
-                    )
-                )
-    elif phase == 'test':
-        if dataset is None:
-            return dict(
-                    test_dataloader=None,
-                    test_cfg=None,
-                    test_evaluator=None)
-        else:
-            return dict(
-                    test_dataloader=dict(
-                        _delete_=True,
-                        batch_size=batch_size,
-                        num_workers=num_workers,
-                        dataset=dataset,
-                        drop_last=False,
-                        sampler=dict(type='DefaultSampler', shuffle=False)
-                    ),
-                    test_cfg = dict(
-                        _delete_=True,
-                        type='TestLoop'),
-                    test_evaluator = dict(
-                        _delete_=True,
-                        type='CocoMetric',
-                        ann_file=dataset['ann_file'],
-                        metric=metrics,
-                        backend_args=None
-                    )
-                )
-    else: # other cases, e.g., inference
-        return dict(test_dataloader=dict(
-                    _delete_=True,
-                    batch_size=batch_size,
-                    num_workers=num_workers,
-                    drop_last=False,
-                    sampler=dict(type='DefaultSampler', shuffle=False),
-                    dataset=dataset))
-    
+                        sampler=dict(type='DefaultSampler', shuffle=False),
+                        dataset=dataset.cfg))
+
+    @property
+    def cfg(self):
+        return self.__cfg        
 
 
 class MMDETCORE():
@@ -427,9 +445,9 @@ class MMDETCORE():
 
 
     def train(self,
-              train: dict,
-              valid: dict|None=None,
-              test: dict|None=None,
+              train: DataLoader,
+              valid: DataLoader|None=None,
+              test: DataLoader|None=None,
               epoch: int=20,
               optimizer: dict|str|None=None,
               scheduler: dict|str|None=None):
@@ -450,9 +468,9 @@ class MMDETCORE():
         seed the :func:`test <cvtk.ml.mmdetutils.MMDETCORE.test>` method for more details.
 
         Args:
-            train: A dictionary generated by DataLoader.
-            valid: A dictionary generated by DataLoader or None.
-            test: A dictionary generated by DataLoader or None.
+            train: A DataLoader class object.
+            valid: A DataLoader class object or None.
+            test: A DataLoader class object or None.
             epoch: The number of epochs.
             optimizer: A dictionary of string indicating optimizer for training.
             scheduler: A dictionary of string indicating scheduler for training.
@@ -468,14 +486,14 @@ class MMDETCORE():
         >>>
         >>> model = MMDETCORE(datalabel, cfg, weights, workspace)
         >>> 
-        >>> train = DataLoader('/path/to/train/coco.json', 'train')
+        >>> train = DataLoader(Dataset(datalabel, '/path/to/train/coco.json'), 'train')
         >>> model.train(train, epoch=10)
         >>> model.save('/path/to/model.pth')
         >>>
         >>>
-        >>> train = DataLoader('/path/to/train/coco.json', 'train')
-        >>> valid = DataLoader('/path/to/valid/coco.json', 'valid')
-        >>> test = DataLoader('/path/to/test/coco.json', 'test')
+        >>> train = DataLoader(Dataset(datalabel, '/path/to/train/coco.json'), 'train')
+        >>> valid = DataLoader(Dataset(datalabel, '/path/to/valid/coco.json'), 'valid')
+        >>> test = DataLoader(Dataset(datalabel, '/path/to/test/coco.json'), 'test')
         >>> model.train(train, valid, test, epoch=10)
         >>> model.save('/path/to/model.pth')
         """
@@ -486,13 +504,14 @@ class MMDETCORE():
         self.__set_scheduler(scheduler)
         
         # datasets
-        self.cfg.merge_from_dict(train)
+        self.cfg.merge_from_dict(train.cfg)
         
         self.cfg.train_cfg.max_epochs = epoch
         if valid is None:
             valid = DataLoader(None, 'valid')
-        self.cfg.merge_from_dict(valid)
-        self.cfg.merge_from_dict(DataLoader(None, 'test')) # test after training
+        self.cfg.merge_from_dict(valid.cfg)
+        _test_none = DataLoader(None, 'test')
+        self.cfg.merge_from_dict(_test_none.cfg) # test after training
         self.cfg.default_hooks.checkpoint.interval = 1000
 
         # training
@@ -504,7 +523,7 @@ class MMDETCORE():
 
         # test
         if test is not None:
-            self.cfg.merge_from_dict(test)
+            #self.cfg.merge_from_dict(test.cfg)
             self.cfg.load_from = os.path.join(self.workspace, 'last_checkpoint.pth')
             self.test_stats = self.test(test)
 
@@ -564,7 +583,7 @@ class MMDETCORE():
         >>> metrics = model.test(test)
         >>> print(metrics)
         """
-        self.cfg.merge_from_dict(test)
+        self.cfg.merge_from_dict(test.cfg)
         runner = mmengine.runner.Runner.from_cfg(self.cfg)
 
         test_outputs = os.path.join(self.workspace, 'test_outputs.pkl')
@@ -610,7 +629,7 @@ class MMDETCORE():
                         }
 
         with open(os.path.splitext(test_outputs)[0] + '.coco.json', 'w') as oufh:
-            json.dump(cocodict, oufh, cls=JsonComplexEncoder, indent=4)
+            json.dump(cocodict, oufh, cls=JsonComplexEncoder, indent=4, ensure_ascii=False)
 
         iou_type = 'bbox'
         for pp in self.cfg.test_dataloader.dataset.pipeline:
@@ -620,6 +639,8 @@ class MMDETCORE():
 
         self.test_stats = calc_stats(self.cfg.test_evaluator.ann_file,
                                      os.path.splitext(test_outputs)[0] + '.coco.json',
+                                     image_by='filepath',
+                                     category_by='name',
                                      iouType=iou_type)
         return self.test_stats
     
@@ -710,9 +731,9 @@ class MMDETCORE():
             >>>     json.dump(coco_json, outfh)
         """
         input_images = []
-        if isinstance(data, dict):
+        if isinstance(data, DataLoader):
             # test dataloader defined by mmdet
-            self.cfg.merge_from_dict(data)
+            self.cfg.merge_from_dict(data.cfg)
             data_dpath = self.cfg.test_dataloader.dataset.data_root
             if data_dpath == '':
                 if self.cfg.test_dataloader.dataset.type == 'RepeatDataset':
