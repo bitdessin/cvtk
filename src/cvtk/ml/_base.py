@@ -176,7 +176,7 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
     source_task_type, source_is_vanilla = __estimate_task_from_source(source)
 
     # FastAPI script
-    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/_fastapi.py'), source_task_type)
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/_flask.py'), source_task_type)
     if vanilla:
         if source_is_vanilla:
             for i in range(len(tmpl)):
