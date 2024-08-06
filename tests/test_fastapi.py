@@ -24,7 +24,8 @@ class TestDemoAPP(unittest.TestCase):
             generate_source(script, task=task, vanilla=task_vanilla)
         elif code_generator == 'cmd':
             cmd_ = ['cvtk', 'create', '--task', task, '--script', script]
-            cmd_.append('--vanilla')
+            if task_vanilla:
+                cmd_.append('--vanilla')
             testutils.run_cmd(cmd_)
         
         testutils.run_cmd(['python', script, 'train',

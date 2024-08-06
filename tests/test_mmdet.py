@@ -73,17 +73,17 @@ class TestDataset(unittest.TestCase):
 
     def test_dataset_none(self):
         dataset = Dataset(None, None, None)
-        self.assertEqual(dataset, None)
+        self.assertEqual(dataset.cfg, None)
 
     def test_dataset_list(self):
         imgs = ['img_1.jpg', 'img_2.jpg', 'img_3.jpg']
         dataset = Dataset(DataLabel(['tomato', 'eggplant', 'strawberry', 'cucumber']), imgs)
-        self.assertEqual(dataset['data_root'], imgs)
+        self.assertEqual(dataset.cfg['data_root'], imgs)
 
     def test_dataset_str(self):
         image_dpath = 'data/fruits/images'
         dataset = Dataset(DataLabel(['leaf', 'root', 'flower']), image_dpath)
-        self.assertEqual(dataset['data_root'],
+        self.assertEqual(dataset.cfg['data_root'],
                          os.path.join(os.path.dirname(__file__), image_dpath))
         
     def test_dataset_dict(self):
@@ -95,7 +95,7 @@ class TestDataset(unittest.TestCase):
             data_root=''
         )
         dataset = Dataset(DataLabel(labels), data_dict)
-        self.assertEqual(dataset, data_dict)
+        self.assertEqual(dataset.cfg, data_dict)
 
 
 
@@ -110,21 +110,21 @@ class TestDataLoader(unittest.TestCase):
                           DataLoader, None, phase='train')
 
         dataloader = DataLoader(None, phase='valid')
-        self.assertEqual(dataloader,
+        self.assertEqual(dataloader.cfg,
                          dict(
                             val_dataloader=None,
                             val_cfg=None,
                             val_evaluator=None))
 
         dataloader = DataLoader(None, phase='test')
-        self.assertEqual(dataloader,
+        self.assertEqual(dataloader.cfg,
                          dict(
                             test_dataloader=None,
                             test_cfg=None,
                             test_evaluator=None))
 
         dataloader = DataLoader(None, phase='inference')
-        self.assertIsNotNone(dataloader)
+        self.assertIsNotNone(dataloader.cfg)
 
 
         

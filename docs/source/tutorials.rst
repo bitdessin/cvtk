@@ -10,6 +10,7 @@ Tutorials
     tutorials/det
     tutorials/segm
     tutorials/app
+    tutorials/ls
    
 
 

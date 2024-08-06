@@ -6,11 +6,11 @@ import unittest
 import testutils
 
 
-class TestMLBase(unittest.TestCase):
+class TestBaseUtils(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.data_file = testutils.data['cls']['all']
-        self.ws = testutils.set_ws('mlbase_mlbase')
+        self.ws = testutils.set_ws('ml_baseutils')
 
 
 
@@ -62,6 +62,33 @@ class TestMLBase(unittest.TestCase):
 
 
         
+class TestScriptUtils(unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ws = testutils.set_ws('ml_scriptutils')
+
+
+    def test_split_text(self):
+        testutils.run_cmd(['cvtk', 'split',
+                    '--input', testutils.data['cls']['all'],
+                    '--output', os.path.join(self.ws, 'fruits_subset_1.txt'),
+                    '--ratios', '6:3:1',
+                    '--shuffle', '--stratify'])
+        
+        testutils.run_cmd(['cvtk', 'split',
+                    '--input', testutils.data['cls']['all'],
+                    '--output', os.path.join(self.ws, 'fruits_subset_2.txt'),
+                    '--ratios', '6:3:1',
+                    '--shuffle'])
+        
+        testutils.run_cmd(['cvtk', 'split',
+                    '--input', testutils.data['cls']['all'],
+                    '--output', os.path.join(self.ws, 'fruits_subset_3.txt'),
+                    '--ratios', '6:3:1'])
+
+    
+
+
 
 
 if __name__ == '__main__':

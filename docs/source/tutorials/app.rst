@@ -46,7 +46,7 @@ Next, navigate to the clsapp directory and execute the following command to star
 
 .. code-block:: sh
 
-    uvicorn main:app --host 0.0.0.0 --port 8080
+    gunicorn --bind 0.0.0.0:8080  main:app
     
 
 You can now access the object classification model through a web page by visiting http://localhost:8080.
@@ -116,7 +116,7 @@ through a web page by visiting http://localhost:8080.
 
 .. code-block:: sh
 
-    uvicorn main:app --host 0.0.0.0 --port 8080
+    gunicorn --bind 0.0.0.0:8080  main:app
 
 
 
