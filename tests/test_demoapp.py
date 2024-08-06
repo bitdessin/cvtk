@@ -13,7 +13,7 @@ class TestDemoAPP(unittest.TestCase):
     def __run_proc(self, task, task_vanilla, api_vanilla, code_generator):
         task_module = 'vanilla' if task_vanilla else 'cvtk'
         api_module = 'vanilla' if api_vanilla else 'cvtk'
-        dpath = testutils.set_ws(f'fastapi_demoapp__{task}_{task_module}_{api_module}_{code_generator}')
+        dpath = testutils.set_ws(f'demoapp__{task}_{task_module}_{api_module}_{code_generator}')
         
         script = os.path.join(dpath, 'script.py')
         model_weight = os.path.join(dpath, 'model.pth')
@@ -53,9 +53,7 @@ class TestDemoAPP(unittest.TestCase):
             if api_vanilla:
                 cmd_.append('--vanilla')
             testutils.run_cmd(cmd_)
-        
-        #testutils.run_cmd(['uvicorn', app_project, '--host', '0.0.0.0', '--port', '8080', '--reload'])
-        
+                
 
     def test_cls(self):
         self.__run_proc('cls', True, True, 'source')

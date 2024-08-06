@@ -42,6 +42,7 @@ def set_ws(dpath):
 
 
 def run_cmd(cmd):
+    cmd = [str(_) for _ in cmd]
     print('\nCOMMAND -----------------------------------------')
     print(' '.join(cmd))
     print('-------------------------------------------------\n')
