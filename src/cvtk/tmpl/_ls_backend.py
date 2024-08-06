@@ -104,6 +104,6 @@ app = label_studio_ml.api.init_app(
 """
 Example:
 
-uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+gunicorn --bind 0.0.0.0:8600  main:app --reload
 """
 

@@ -54,10 +54,10 @@ docs = [
     'cvtk[full]',
     'sphinx-rtd-theme',
     'sphinxcontrib-napoleon',
-    'numpy == 1.26.3',
-    'torch == 2.1.0',
-    'mmcv == 2.1.0',
-    'mmdet == 3.3.0',
+    'numpy',
+    'torch',
+    'mmcv',
+    'mmdet',
 ]
 
 

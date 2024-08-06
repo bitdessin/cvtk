@@ -3,8 +3,11 @@ import numpy as np
 import requests
 import PIL
 import cvtk.ls
+import cvtk.ml
+import pathlib
 import unittest
 import testutils
+
 
 
 def get_app_status(url):
@@ -30,7 +33,22 @@ class TestBaseUtils(unittest.TestCase):
                            output=os.path.join(self.ws, 'instances.coco.json'),
                            format='coco',
                            host=host, port=port)
-
+            
+    def test_generate_app(self):
+        with open(os.path.join(self.ws, 'sample_label.txt'), 'w'):
+            pass
+        with open(os.path.join(self.ws, 'model.pth'), 'w'):
+            pass
+        with open(os.path.join(self.ws, 'model.py'), 'w'):
+            pass
+        
+        
+        cvtk.ml.generate_source(os.path.join(self.ws, 'det.py'), task='det')
+        cvtk.ls.generate_app(os.path.join(self.ws, 'lsbackend'),
+                             source=os.path.join(self.ws, 'det.py'),
+                             label=os.path.join(self.ws, 'sample_label.txt'),
+                             model=os.path.join(self.ws, 'model.py'),
+                             weights=os.path.join(self.ws, 'model.pth'))
 
 
 class TestScritpUtils(unittest.TestCase):
@@ -46,6 +64,27 @@ class TestScritpUtils(unittest.TestCase):
                                '--output', os.path.join(self.ws, 'instances.coco.json'),
                                '--format', 'coco',
                                '--host', host, '--port', port])
+
+
+    def test_generate_app(self):
+        with open(os.path.join(self.ws, 'sample_label.txt'), 'w'):
+            pass
+        with open(os.path.join(self.ws, 'model.pth'), 'w'):
+            pass
+        with open(os.path.join(self.ws, 'model.py'), 'w'):
+            pass
+
+        testutils.run_cmd(['cvtk', 'create',
+                               '--task', 'det',
+                               '--script', os.path.join(self.ws, 'det.py')])
+            
+        testutils.run_cmd(['cvtk', 'ls-backend',
+                               '--project', os.path.join(self.ws, 'lsbackend'),
+                               '--source', os.path.join(self.ws, 'det.py'),
+                               '--label', os.path.join(self.ws, 'sample_label.txt'),
+                               '--model', os.path.join(self.ws, 'model.py'),
+                               '--weights', os.path.join(self.ws, 'model.pth')])
+
 
 
 

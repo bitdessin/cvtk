@@ -36,7 +36,7 @@ def train(label, train, valid, test, output_weights, batch_size=2, num_workers=8
                     output=os.path.splitext(output_weights)[0] + '.train_stats.valid.png')    
         
 
-def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
+def inference(label, data, model_weights, output, batch_size=2, num_workers=8):
     datalabel = DataLabel(label)
     
     model = MMDETCORE(datalabel, os.path.splitext(model_weights)[0] + '.py', model_weights, workspace=output)
