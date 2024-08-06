@@ -15,8 +15,8 @@ classifiers = [
 license = {'text' = 'MIT'}
 requires-python = '>=3.10'
 dependencies = [
-    'filetype',
-    'Pillow',
+    'filetype', 
+   'Pillow',
     'numpy >= 1.21',
     'pandas >= 1.3',
 ]
@@ -47,11 +47,14 @@ full = [
     'kaleido >= 0.2',
     'scikit-learn',
     'scikit-image',
+    'flask',
+    'gunicorn'
 ]
 docs = [
     'cvtk[full]',
     'sphinx-rtd-theme',
     'sphinxcontrib-napoleon',
+    'numpy == 1.26.3',
     'torch == 2.1.0',
     'mmcv == 2.1.0',
     'mmdet == 3.3.0',

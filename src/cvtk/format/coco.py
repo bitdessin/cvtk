@@ -13,10 +13,10 @@ def combine(input: str|list[str], output: str|None=None, ensure_ascii: bool=Fals
     The IDs of the images, annotations, and categories will be re-indexed.
 
     Args:
-        inputs (list[str]): List of file paths to COCO annotation files to be merged.
-        output (str, None): The merged COCO annotation data will be saved to the file if the file path is given.
-        ensure_ascii (bool): If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
-        indent (int, None): If a non-negative integer is provided,
+        inputs: List of file paths to COCO annotation files to be merged.
+        output: The merged COCO annotation data will be saved to the file if the file path is given.
+        ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
+        indent: If a non-negative integer is provided,
             the output JSON data will be formatted with the given indentation.
 
     Returns:
@@ -91,15 +91,15 @@ def split(input: str|dict,
     The images will be shuffled before splitting if the `shuffle` parameter is set to True.
 
     Args:
-        input (str|dict): The COCO annotation data to be split.
-        output (str, None): The split COCO annotation data will be saved to the file if the file path.
+        input: The COCO annotation data to be split.
+        output: The split COCO annotation data will be saved to the file if the file path.
             The output file name will be appended with the index of the split subset.
-        ratios (list[float]): Ratios of the train, validation, and test sets.
-        reindex (bool): If True, the IDs of the images, categories, and annotations will be re-indexed.
-        shuffle (bool): If True, the images will be shuffled before splitting.
-        random_seed (int, None): The random seed for shuffling the images.
-        ensure_ascii (bool): If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
-        indent (int, None): If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
+        ratios: Ratios of the train, validation, and test sets.
+        reindex: If True, the IDs of the images, categories, and annotations will be re-indexed.
+        shuffle: If True, the images will be shuffled before splitting.
+        random_seed: The random seed for shuffling the images.
+        ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
+        indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
 
     Examples:
         >>> subsets = split('annotations.json', [0.8, 0.1, 0.1])
@@ -162,12 +162,12 @@ def reindex(input: str|dict,
     """Re-index the IDs of images, categories, and annotations in a COCO annotation file.
 
     Args:
-        input (str|dict): The COCO annotation data to be re-indexed.
-        output (str, None): The re-indexed COCO annotation data will be saved to the file if the file path is given.
-        image_id (bool): If True, the image IDs will be re-indexed.
-        category_id (bool): If True, the category IDs will be re-indexed.
-        ensure_ascii (bool): If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
-        indent (int, None): If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
+        input: The COCO annotation data to be re-indexed.
+        output: The re-indexed COCO annotation data will be saved to the file if the file path is given.
+        image_id: If True, the image IDs will be re-indexed.
+        category_id: If True, the category IDs will be re-indexed.
+        ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
+        indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
     
     """
     if isinstance(input, str):
@@ -199,6 +199,42 @@ def reindex(input: str|dict,
     return cocodata
 
 
+
+
+def stats(input: str|dict, output: str|None=None, ensure_ascii: bool=False, indent: int|None=4) -> dict:
+    """Calculate statistics of a COCO annotation file.
+
+    Args:
+        input: The COCO annotation data to be analyzed.
+        output: The statistics of the COCO annotation data will be saved to the file if the file path
+        ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
+        indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
+
+    Returns:
+        dict: A dictionary containing the statistics of the COCO annotation data.
+
+    Examples:
+        >>> stats = cocostats('annotations.json')
+    """
+    if isinstance(input, str):
+        with open(input, 'r') as f:
+            cocodata = json.load(f)
+    else:
+        cocodata = input
+
+    n_anns = {}
+    for cate in cocodata['categories']:
+        n_anns[str(cate['id'])] = 0
+    for ann in cocodata['annotations']:
+        n_anns[str(ann['category_id'])] += 1
+
+    stats = {
+        'n_images': len(cocodata['images']),
+        'n_categories': len(cocodata['categories']),
+        'n_annotations': [{cate['name']: n_anns[str(cate['id'])] for cate in cocodata['categories']}]
+    }
+
+    return stats
 
 
 
