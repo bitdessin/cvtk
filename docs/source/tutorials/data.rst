@@ -1,6 +1,9 @@
 Data Preprocessing
 ##################
 
+This section presents functions
+that are useful for data preprocessing in computer vision tasks.
+
 
 Text Data Files
 ***************
@@ -28,7 +31,7 @@ with the image file paths in the first column and the label names in the second 
 
 To split this data into training, validation, and test sets in a 6:2:2 ratio,
 run the following command.
-The ``--shuffle`` option shuffles the data before splitting.
+Note that, by adding the ``--shuffle`` argument, the data is shuffled before splitting.
 
 
 .. code-block:: sh
@@ -36,9 +39,9 @@ The ``--shuffle`` option shuffles the data before splitting.
     cvtk split --input data.txt --output data_subset.txt --ratios 6:2:2 --shuffle
 
 
-If the command runs successfully,
-it generates the files :file:`data_subset.txt.0`, :file:`data_subset.txt.1`,
-and :file:`data_subset.txt.2`` in the current directory.
+The command generates the files
+:file:`data_subset.txt.0`, :file:`data_subset.txt.1`, and :file:`data_subset.txt.2`
+in the current directory.
 The number of samples in each file will roughly match the ratio specified by ``--ratios``.
 
 
@@ -54,11 +57,11 @@ The number of samples in each file will roughly match the ratio specified by ``-
     # 400 total
 
 
-
-In general, shuffling the data ensures that each subset contains data from all classes.
-However, if the dataset is imbalanced, the class distribution in each subset may not be uniform.
-In such cases, user can use the ``--stratify`` option
-to split the data so that each subset has a uniform class distribution.
+Theoretically, shuffling the data should give approximately the same proportion of each class in each subset.
+However, if the dataset is imbalanced, the distribution of classes in each subset may not be the same
+(e.g., data in minor classes may appear in several subsets but not in others).
+In such cases, users can use the ``--stratify`` option
+to ensure that each subset has a uniform class distribution.
 
 
 .. code-block:: sh
@@ -71,27 +74,98 @@ to split the data so that each subset has a uniform class distribution.
 COCO Format Files
 *****************
 
-To split COCO format files into multiple subsets, use the ``cvtk cocosplit`` command.
+
+The **cvtk** package offers several commands
+that allow users to combine, split, and retrieve statistics from COCO format files.
+The following examples demonstrate how to use these commands effectively.
 
 
-.. code-block:: sh
+File Combining
+==============
 
-    cvtk cocosplit --input bbox.json --output data_subset.json --ratios 6:2:2 --shuffle
-
-
-The command generates the files :file:`data_subset.json.0`, :file:`data_subset.json.1`,
-and :file:`data_subset.json.2`` in the directory.
-The number of samples in each file will roughly match the ratio specified by ``--ratios``.
+To combine multiple COCO format files, use the ``cvtk coco-combine`` command.
+In the example below, we combine :file:`train.json`, :file:`valid.json`, and :file:`test.json` into a single file, :file:`dataset.json`.
+Note that when specifying multiple files, separate them with commas without spaces.
 
 
-The **cvtk** package also provides a command to combine multiple COCO format files into a single file.
+.. code-block::
+
+    cvtk coco-combine
+        --inputs train.json,valid.json,test.json \
+        --output dataset.json
 
 
-You can also combine multiple COCO format files into a single file using the ``cvtk cococombine`` command. 
-Note that, specify the paths of the files to be combined as a comma-separated list without spaces between the files.
+When executed correctly, the :file:`dataset.json` ile is generated.
+The number of images in :file:`dataset.json` will be the sum of images from the input files.
+Additionally, the categories in :file:`dataset.json` will be the union of categories from the input files,
+with newly assigned category IDs.
 
-.. code-block:: sh
+This functionality can also be executed from Python using the :func:`combine <cvtk.format.coco.combine>` method.
 
-    cvtk cococombine --input data_subset.json.0,data_subset.json.1,data_subset.json.2 \
-                     --output data_combined.json
+
+
+File Splitting
+==============
+
+
+To split a single COCO format file into multiple files, use the ``cvtk coco-split`` command.
+In the example below, we shuffle :file:`dataset.json`` and then split it into three files in a 6:2:2 ratio,
+saving the output as subset.json.
+
+.. code-block::
+
+    cvtk coco-split
+        --input ./data/strawberry/train/bbox.json \
+        --output ./output/subset.bbox.json \
+        --ratios 6:2:2 \
+        --shuffle
+
+Upon successful execution, three files :file:`subset.json.0`, :file:`subset.json.1`, and :file:`subset.json.2` are generated,
+each containing images in the specified 6:2:2 ratio.
+
+This functionality can also be executed from Python using the :func:`split <cvtk.format.coco.split>` method.
+
+
+
+Image Cropping
+==============
+
+
+To crop images using the bounding box information in a COCO format file, use the ``cvtk coco-crop`` command.
+Ensure that the ``file_name`` in the COCO format file correctly points to the actual image file paths.
+Convert to absolute paths if necessary.
+
+.. code-block::
+
+    cvtk coco-crop
+        --input dataset.json \
+        --output cropped_images
+
+
+After execution, a cropped_images directory is created, containing cropped images.
+The filenames of the cropped images follow the format: "original_image_filename__category_name__coordinates.extension",
+where the coordinates are the bounding box's top-left and bottom-right coordinates
+as integers connected by hyphens (e.g., img01__strawberry__10-20-200-310.jpg).
+
+This functionality can also be executed from Python using the :func:`crop <cvtk.format.coco.crop>` method.
+
+
+Retrieving Statistics
+=====================
+
+
+To obtain statistics from a COCO format file,
+such as the number of images, number of categories,
+and the number of objects annotated for each category, use the ``cvtk coco-stat`` command.
+
+.. code-block::
+
+    cvtk coco-stat
+        --input ./data/strawberry/train/bbox.json
+
+
+The statistics are displayed in the standard output.
+If you wish to save the statistics in a JSON file or another format,
+use the :func:`stats <cvtk.format.coco.stats>` method directly from Python.
+
 

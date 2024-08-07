@@ -41,7 +41,7 @@ full = [
     'torchvision >= 0.16',
     'openmim',
     'mmengine',
-    'mmcv >= 2.0, <2.0.0',
+    'mmcv >= 2.0, <3.0.0',
     'mmdet >= 3.0, <3.4.0',
     'plotly >= 5.20',
     'kaleido >= 0.2',
@@ -53,11 +53,7 @@ full = [
 docs = [
     'cvtk[full]',
     'sphinx-rtd-theme',
-    'sphinxcontrib-napoleon',
-    'numpy',
-    'torch',
-    'mmcv',
-    'mmdet',
+    'sphinxcontrib-napoleon'
 ]
 
 

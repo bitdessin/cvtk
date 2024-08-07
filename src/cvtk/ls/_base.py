@@ -153,4 +153,3 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
 
 
     
-
