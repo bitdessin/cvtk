@@ -2,7 +2,52 @@ import os
 import copy
 import json
 import random
+import PIL
+import PIL.Image
 from cvtk import JsonComplexEncoder
+
+
+def __xywh2xyxy(bbox):
+    return [int(bbox[0]), int(bbox[1]), int(bbox[0] + bbox[2]), int(bbox[1] + bbox[3])]
+
+
+def __xyxy2xywh(bbox):
+    return [int(bbox[0]), int(bbox[1]), int(bbox[2] - bbox[0]), int(bbox[3] - bbox[1])]
+
+
+def crop(input: str|list[str], output: str):
+    """Crop objects from images based on COCO annotations.
+
+    The function crops objects from images based on COCO annotations.
+    The cropped objects will be saved to the output directory.
+
+    Args:
+        input: The COCO annotation file or list of COCO annotation files.
+        output: The directory to save the cropped objects.
+    """
+    if isinstance(input, str):
+        with open(input, 'r') as f:
+            data = json.load(f)
+    else:
+        data = copy.deepcopy(input)
+
+    if not os.path.exists(output):
+        os.makedirs(output)
+
+    for ann in data['annotations']:
+        im_path = [_ for _ in data['images'] if _['id'] == ann['image_id']][0]['file_name']
+        cate_name = [_ for _ in data['categories'] if _['id'] == ann['category_id']][0]['name']
+        bbox = tuple(__xywh2xyxy(ann['bbox']))
+        
+        im = PIL.Image.open(im_path)
+        im_crop = im.crop(bbox)
+        im_crop.save(os.path.join(output, '{}_{}_{}.{}'.format(
+            os.path.splitext(os.path.basename(im_path))[0],
+            cate_name,
+            '-'.join([str(int(i)) for i in bbox]),
+            os.path.splitext(im_path)[1])))
+        
+
 
 
 def combine(input: str|list[str], output: str|None=None, ensure_ascii: bool=False, indent: int|None=4) -> dict:

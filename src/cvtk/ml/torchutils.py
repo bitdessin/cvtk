@@ -3,6 +3,7 @@ import random
 import gzip
 import importlib
 import filetype
+import gc
 import numpy as np
 import pandas as pd
 import sklearn.metrics
@@ -275,6 +276,16 @@ class CLSCORE():
         
         self.train_stats = None
         self.test_stats = None
+
+    
+    def __del__(self):
+        try:
+            if self.model is not None:
+                del self.model
+                torch.cuda.empty_cache()
+                gc.collect()
+        except:
+            pass
 
     
     def __init_datalabel(self, datalabel):

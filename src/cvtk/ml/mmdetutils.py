@@ -3,6 +3,7 @@ import re
 import datetime
 import shutil
 import json
+import gc
 import random
 import pathlib
 import io
@@ -350,6 +351,10 @@ class MMDETCORE():
 
     def __del__(self):
         try:
+            if self.model is not None:
+                del self.model
+                torch.cuda.empty_cache()
+                gc.collect()
             if self.tempd is not None:
                 self.tempd.cleanup()
         except:
@@ -519,6 +524,8 @@ class MMDETCORE():
         self.mmdet_log_dpath = os.path.join(self.workspace, runner.timestamp)
         runner.train()
         del runner
+        torch.cuda.empty_cache()
+        gc.collect()
         self.save(os.path.join(self.workspace, 'last_checkpoint.pth'))
 
         # test
@@ -642,6 +649,13 @@ class MMDETCORE():
                                      image_by='filepath',
                                      category_by='name',
                                      iouType=iou_type)
+        
+
+        del runner
+        torch.cuda.empty_cache()
+        gc.collect()
+        self.save(os.path.join(self.workspace, 'last_checkpoint.pth'))
+
         return self.test_stats
     
     

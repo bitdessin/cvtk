@@ -52,6 +52,10 @@ def coco_stats(args):
     pprint.pprint(cvtk.format.coco.stats(args.input))
 
 
+def coco_crop(args):
+    cvtk.format.coco.crop(args.input, output=args.output)
+
+
 def ls_export(args):
     cvtk.ls.export(args.project,
                    output=args.output,
@@ -115,6 +119,11 @@ def main():
     parser_split_text = subparsers.add_parser('coco-stats')
     parser_split_text.add_argument('--input', type=str, required=True)
     parser_split_text.set_defaults(func=coco_stats)
+
+    parser_split_text = subparsers.add_parser('coco-crop')
+    parser_split_text.add_argument('--input', type=str, required=True)
+    parser_split_text.add_argument('--output', type=str, required=True)
+    parser_split_text.set_defaults(func=coco_crop)
 
     parser_split_text = subparsers.add_parser('ls-export')
     parser_split_text.add_argument('--project', type=str, required=True)

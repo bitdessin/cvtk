@@ -140,7 +140,7 @@ class TestMMDet(unittest.TestCase):
     def __inference(self, model, datalabel, data, output_dpath):
         data = DataLoader(
                     Dataset(datalabel, data, DataPipeline()),
-                    phase='inference', batch_size=2, num_workers=8)
+                    phase='inference', batch_size=4, num_workers=8)
         pred_outputs = model.inference(data)
         for im in pred_outputs:
             im.draw(format='bbox+segm',
@@ -148,7 +148,7 @@ class TestMMDet(unittest.TestCase):
 
 
 
-    def __test_mmdetutils(self, label, train, valid=None, test=None, output_dpath=None, batch_size=2, num_workers=8):
+    def __test_mmdetutils(self, label, train, valid=None, test=None, output_dpath=None, batch_size=4, num_workers=8):
         output_pfx = os.path.join(output_dpath, 'sb')
         datalabel = DataLabel(label)
         model = MMDETCORE(datalabel, "faster-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)

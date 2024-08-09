@@ -1,10 +1,11 @@
 import os
+import random
 from cvtk import ImageDeck
 from cvtk.ml.data import DataLabel
 from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog
 
 
-def train(label, train, valid, test, output_weights, batch_size=2, num_workers=8, epoch=10):
+def train(label, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=10):
     temp_dpath = os.path.splitext(output_weights)[0]
 
     datalabel = DataLabel(label)
@@ -36,7 +37,7 @@ def train(label, train, valid, test, output_weights, batch_size=2, num_workers=8
                     output=os.path.splitext(output_weights)[0] + '.train_stats.valid.png')    
         
 
-def inference(label, data, model_weights, output, batch_size=2, num_workers=8):
+def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
     datalabel = DataLabel(label)
     
     model = MMDETCORE(datalabel, os.path.splitext(model_weights)[0] + '.py', model_weights, workspace=output)
@@ -48,7 +49,7 @@ def inference(label, data, model_weights, output, batch_size=2, num_workers=8):
     pred_outputs = model.inference(data)
 
     for im in pred_outputs:
-        set.seed(1) # restrict to generate same random color for each class in each image
+        random.seed(1) # restrict to generate same random color for each class in each image
         im.draw(format='bbox+segm',
                 output=os.path.join(output, os.path.basename(im.source)))
     
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     parser_train.add_argument('--valid', type=str, required=False, default=None)
     parser_train.add_argument('--test', type=str, required=False, default=None)
     parser_train.add_argument('--output_weights', type=str, required=True)
-    parser_train.add_argument('--batch_size', type=int, default=2)
+    parser_train.add_argument('--batch_size', type=int, default=4)
     parser_train.add_argument('--num_workers', type=int, default=8)
     parser_train.add_argument('--epoch', type=int, default=10)
     parser_train.set_defaults(func=_train)
@@ -87,7 +88,7 @@ if __name__ == '__main__':
     parser_inference.add_argument('--data', type=str, required=True)
     parser_inference.add_argument('--model_weights', type=str, required=True)
     parser_inference.add_argument('--output', type=str, required=False)
-    parser_inference.add_argument('--batch_size', type=int, default=2)
+    parser_inference.add_argument('--batch_size', type=int, default=4)
     parser_inference.add_argument('--num_workers', type=int, default=8)
     parser_inference.set_defaults(func=_inference)
 
