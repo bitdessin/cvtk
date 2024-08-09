@@ -67,7 +67,7 @@ docs = [
     'scikit-image',
     'flask',
     'gunicorn',
-    'label_studio_sdk'
+    'label_studio_sdk',
     'sphinx-rtd-theme',
     'sphinxcontrib-napoleon'
 ]
