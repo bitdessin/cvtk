@@ -1,0 +1,27 @@
+services:
+  devel-env:
+    image: "devel:${USERNAME}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - UID:1000
+        - GID:1000
+        - USERNAME:ubuntu
+        - GROUPNAME:ubuntu
+    container_name: "DevEnv-${USERNAME}"
+    network_mode: host
+    ports:
+      - "80:80"
+      - "8080:8080"
+    shm_size: "12gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    volumes:
+      # mounting home directory result in the ambiguity of shell configurations (e.g. .bashrc)
+      - type: bind
+        source: "/home/${USERNAME}/workspace"
+        target: "/home/${USERNAME}/workspace"
