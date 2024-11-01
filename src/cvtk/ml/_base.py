@@ -6,7 +6,7 @@ import copy
 import re
 from .torchutils import __generate_source as generate_source_cls
 from .mmdetutils import __generate_source as generate_source_det
-from ._subutils import __estimate_task_from_source, __generate_app_html_tmpl
+from ._subutils import __estimate_source_task, __estimate_source_vanilla, __generate_app_html_tmpl
 
 
 def split_dataset(data: str|list[str, str]|tuple[str, str],
@@ -24,9 +24,9 @@ def split_dataset(data: str|list[str, str]|tuple[str, str],
             or a path to a text file. If list is given, each element of the list is treated as a sample.
         output: The output file name will be appended with the index of the split subset.
         ratios: The ratios to split the dataset. The sum of the ratios should be 1.
-        shuffle (bool): Shuffle the dataset before splitting.
-        stratify (bool): Split the dataset with a balanced class distribution if `label` is given.
-        random_seed (int|none): Random seed for shuffling the dataset.
+        shuffle: Shuffle the dataset before splitting.
+        stratify: Split the dataset with a balanced class distribution if `label` is given.
+        random_seed: Random seed for shuffling the dataset.
 
     Returns:
         A list of the split datasets. The length of the list is the same as the length of `ratios`.
@@ -113,8 +113,8 @@ def split_dataset(data: str|list[str, str]|tuple[str, str],
 
 
 
-def generate_source(project: str, task: str='cls', vanilla=False) -> None:
-    """Generate source code for training and inference of a classification model using PyTorch
+def generate_source(project: str, task: str='cls', vanilla: bool=False) -> None:
+    """Generate source code for classification or detection tasks
 
     This function generates a Python script for training and inference of a model
     using PyTorch (for classification task) or MMDetection (for object detection and instance segmentation tasks).
@@ -128,9 +128,9 @@ def generate_source(project: str, task: str='cls', vanilla=False) -> None:
     since all functions is implemented directly in torch and torchvision.
 
     Args:
-        project (str): A file path to save the script.
-        task (str): The task type of project. Three types of tasks can be specified ('cls', 'det', 'segm'). The default is 'cls'.
-        vanilla (bool): Generate a script without importation of cvtk. The default is False.
+        project: A file path to save the script.
+        task: The task type of project. Three types of tasks can be specified ('cls', 'det', 'segm'). The default is 'cls'.
+        vanilla: Generate a script without importation of cvtk. The default is False.
     """
     
     if task.lower() in ['cls', 'classification']:
@@ -141,18 +141,18 @@ def generate_source(project: str, task: str='cls', vanilla=False) -> None:
         raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`segm`) tasks.')
 
 
-def generate_app(project: str, source: str, label: str, model: str, weights: str, vanilla=False) -> None:
+def generate_demoapp(project: str, source: str, label: str, model: str, weights: str, vanilla: bool=False) -> None:
     """Generate a FastAPI application for inference of a classification or detection model
     
     This function generates a FastAPI application for inference of a classification or detection model.
 
     Args:
-        project (str): A file path to save the FastAPI application.
-        source (str): The source code of the model.
-        label (str): The label file of the dataset.
-        model (str): The configuration file of the model.
-        weights (str): The weights file of the model.
-        module (str): Script with importation of cvtk ('cvtk') or not ('fastapi').
+        project: A file path to save the FastAPI application.
+        source: The source code of the model.
+        label: The label file of the dataset.
+        model: The configuration file of the model.
+        weights: The weights file of the model.
+        module: Script with importation of cvtk ('cvtk') or not ('fastapi').
 
     Examples:
         >>> from cvtk.ml import generate_app
@@ -173,22 +173,20 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
         shutil.copy2(model, os.path.join(project, model_cfg))
     shutil.copy2(weights, os.path.join(project, model_weights))
 
-    source_task_type, source_is_vanilla = __estimate_task_from_source(source)
+    source_task_type = __estimate_source_task(source)
+    source_is_vanilla = __estimate_source_vanilla(source)
 
     # FastAPI script
-    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/_flask.py'), source_task_type)
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/_flask.py'),
+                                    source_task_type)
     if vanilla:
         if source_is_vanilla:
             for i in range(len(tmpl)):
-                if tmpl[i][:9] == 'from cvtk':
-                    if source_task_type == 'cls':
-                        tmpl[i] = f'from {coremodule} import CLSCORE as MODULECORE'
-                    elif source_task_type == 'det':
-                        tmpl[i] = f'from {coremodule} import MMDETCORE as MODULECORE'
-                    else:
-                        raise ValueError('Unsupport Type.')
+                if (tmpl[i][:9] == 'from cvtk') and ('import ModuleCore' in tmpl[i]):
+                    tmpl[i] = f'from {coremodule} import ModuleCore'
         else:
-            print('The CLSCORE or MMDETCORE class definition is not found in the source code. The script will be generated with importation of cvtk.')
+            # user specified vanilla, but the source code for CV task is not vanilla
+            print('The `ModuleCore` class definition is not found in the source code. `ModuleCore` will be generated with importation of cvtk regardless vanilla is specified.')
     tmpl = ''.join(tmpl)
     tmpl = tmpl.replace('__DATALABEL__', data_label)
     tmpl = tmpl.replace('__MODELCFG__', model_cfg)
@@ -199,7 +197,6 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
     # HTML template
     if not os.path.exists(os.path.join(project, 'templates')):
         os.makedirs(os.path.join(project, 'templates'))
-    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/html/fastapi_.html'), source_task_type)
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/html/_flask.html'), source_task_type)
     with open(os.path.join(project, 'templates', 'index.html'), 'w') as fh:
         fh.write(''.join(tmpl))
-    

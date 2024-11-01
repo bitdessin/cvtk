@@ -12,7 +12,7 @@ For accurate model evaluation, it is necessary to split the data into subsets su
 validation, and test sets for training and evaluating the model.
 The **cvtk** package provides a convenient command for splitting a single dataset into multiple subsets.
 
-If the dataset is saved in a text file, use the ``cvtk split`` command.
+If the dataset is saved in a text file, use the ``cvtk text-split`` command.
 For example, suppose you have a tab-delimited text file :file:`data.txt`
 with the image file paths in the first column and the label names in the second column:
 
@@ -36,7 +36,7 @@ Note that, by adding the ``--shuffle`` argument, the data is shuffled before spl
 
 .. code-block:: sh
 
-    cvtk split --input data.txt --output data_subset.txt --ratios 6:2:2 --shuffle
+    cvtk text-split --input data.txt --output data_subset.txt --ratios 6:2:2 --shuffle
 
 
 The command generates the files
@@ -66,7 +66,7 @@ to ensure that each subset has a uniform class distribution.
 
 .. code-block:: sh
 
-    cvtk split --input all.txt --output data_subset.txt --ratios 6:2:2 --shuffle --stratify
+    cvtk text-split --input all.txt --output data_subset.txt --ratios 6:2:2 --shuffle --stratify
 
 
 

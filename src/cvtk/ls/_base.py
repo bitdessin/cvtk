@@ -8,7 +8,7 @@ import json
 import importlib
 from ..ml.torchutils import __generate_source as generate_source_cls
 from ..ml.mmdetutils import __generate_source as generate_source_det
-from ..ml._subutils import __estimate_task_from_source, __generate_app_html_tmpl
+from ..ml._subutils import __estimate_source_task, __estimate_source_vanilla, __generate_app_html_tmpl
 import label_studio_sdk
 
 
@@ -99,7 +99,6 @@ def export(project: int,
                         img['file_name'] = os.path.join(ls_data_root, img['file_name'])
                 img['file_name'] = urllib.parse.unquote(img['file_name'])
                 
-                print(img['file_name'])
             with open(output, 'w') as f:
                 json.dump(exported_data, f, indent=indent, ensure_ascii=ensure_ascii)
  
@@ -116,7 +115,6 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
     if not os.path.exists(project):
         os.makedirs(project)
     
-
     coremodule = os.path.splitext(os.path.basename(source))[0]
     data_label = os.path.basename(label)
     model_cfg = os.path.basename(model)
@@ -128,28 +126,25 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
         shutil.copy2(model, os.path.join(project, model_cfg))
     shutil.copy2(weights, os.path.join(project, model_weights))
 
-    source_task_type, source_is_vanilla = __estimate_task_from_source(source)
+    source_task_type = __estimate_source_task(source)
+    source_is_vanilla = __estimate_source_vanilla(source)
 
     # FastAPI script
-    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/_ls_backend.py'), source_task_type)
+    tmpl = __generate_app_html_tmpl(importlib.resources.files('cvtk').joinpath(f'tmpl/_ls_backend.py'),
+                                    source_task_type)
+
     if vanilla:
         if source_is_vanilla:
             for i in range(len(tmpl)):
-                if tmpl[i][:9] == 'from cvtk':
-                    if source_task_type == 'cls':
-                        tmpl[i] = f'from {coremodule} import CLSCORE as MODULECORE'
-                    elif source_task_type == 'det':
-                        tmpl[i] = f'from {coremodule} import MMDETCORE as MODULECORE'
-                    else:
-                        raise ValueError('Unsupport Type.')
+                if (tmpl[i][:9] == 'from cvtk') and ('import ModuleCore' in tmpl[i]):
+                    tmpl[i] = f'from {coremodule} import ModuleCore'
         else:
-            print('The CLSCORE or MMDETCORE class definition is not found in the source code. The script will be generated with importation of cvtk.')
+            # user specified vanilla, but the source code for CV task is not vanilla
+            print('The `ModuleCore` class definition is not found in the source code. `ModuleCore` will be generated with importation of cvtk regardless vanilla is specified.')
+
     tmpl = ''.join(tmpl)
     tmpl = tmpl.replace('__DATALABEL__', data_label)
     tmpl = tmpl.replace('__MODELCFG__', model_cfg)
     tmpl = tmpl.replace('__MODELWEIGHT__', model_weights)
     with open(os.path.join(project, 'main.py'), 'w') as fh:
         fh.write(tmpl)
-
-
-    

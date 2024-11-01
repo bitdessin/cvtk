@@ -2,10 +2,9 @@ import os
 from cvtk import imlist, ImageDeck
 from cvtk.ml import generate_source
 from cvtk.ml.data import DataLabel
-from cvtk.ml.mmdetutils import MMDETCORE, DataLabel, DataLoader, Dataset, DataPipeline, plot_trainlog
+from cvtk.ml.mmdetutils import ModuleCore, DataLabel, DataLoader, Dataset, DataPipeline, plot_trainlog
 import unittest
 import testutils
-
 
 
 class TestScript(unittest.TestCase):
@@ -66,7 +65,6 @@ class TestScript(unittest.TestCase):
         self.__run_proc('segm', True, 'cmd')
 
 
-
 class TestDataset(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -98,8 +96,6 @@ class TestDataset(unittest.TestCase):
         self.assertEqual(dataset.cfg, data_dict)
 
 
-
-
 class TestDataLoader(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -127,8 +123,6 @@ class TestDataLoader(unittest.TestCase):
         self.assertIsNotNone(dataloader.cfg)
 
 
-        
-
 class TestMMDet(unittest.TestCase):
 
     def __init__(self, *args, **kwargs):
@@ -147,28 +141,31 @@ class TestMMDet(unittest.TestCase):
                     output=output_dpath + os.path.basename(im.source))
 
 
-
-    def __test_mmdetutils(self, label, train, valid=None, test=None, output_dpath=None, batch_size=4, num_workers=8):
+    def __test_mmdetutils(self, label, train, valid=None, test=None, output_dpath=None, task='det', batch_size=4, num_workers=8):
         output_pfx = os.path.join(output_dpath, 'sb')
         datalabel = DataLabel(label)
-        model = MMDETCORE(datalabel, "faster-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
+        if task == 'det':
+            model = ModuleCore(datalabel, "faster-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
+        else:
+            model = ModuleCore(datalabel, "mask-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
 
+        with_mask = False if task == 'det' else True
         train = DataLoader(
                     Dataset(datalabel, train,
-                            DataPipeline(is_train=True, with_bbox=True, with_mask=False)),
+                            DataPipeline(is_train=True, with_bbox=True, with_mask=with_mask)),
                     phase='train', batch_size=batch_size, num_workers=num_workers)
         if valid is not None:
             valid = DataLoader(
                         Dataset(datalabel, valid,
-                                DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
+                                DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
                         phase='valid', batch_size=batch_size, num_workers=num_workers)
         if test is not None:
             test = DataLoader(
                         Dataset(datalabel, test,
-                                DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
+                                DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
                         phase='test', batch_size=batch_size, num_workers=num_workers)
 
-        model.train(train, valid, test, epoch=5)
+        model.train(train, valid, test, epoch=10)
         model.save(f'{output_pfx}.pth')
 
         if os.path.exists(f'{output_pfx}.train_stats.train.txt'):
@@ -178,9 +175,8 @@ class TestMMDet(unittest.TestCase):
             plot_trainlog(f'{output_pfx}.train_stats.valid.txt',
                           output=f'{output_pfx}.train_stats.valid.png')
 
-
         # inference
-        model = MMDETCORE(datalabel, f'{output_pfx}.py', f'{output_pfx}.pth',
+        model = ModuleCore(datalabel, f'{output_pfx}.py', f'{output_pfx}.pth',
                           workspace=output_dpath)
         
         #  images from a folder
@@ -189,14 +185,14 @@ class TestMMDet(unittest.TestCase):
         self.__inference(model, datalabel, imlist(self.sample)[0], os.path.join(output_dpath, 'f_'))
 
 
-
     def test_det_t_t_t(self):
         self.__test_mmdetutils(
             testutils.data['det']['label'],
             testutils.data['det']['train'],
             testutils.data['det']['valid'],
             testutils.data['det']['test'],
-            os.path.join(self.ws, 'det_trainvalidtest'))
+            os.path.join(self.ws, 'det_trainvalidtest'),
+            'det')
 
 
     def test_det_t_t_f(self):
@@ -205,7 +201,8 @@ class TestMMDet(unittest.TestCase):
             testutils.data['det']['train'],
             testutils.data['det']['valid'],
             None,
-            os.path.join(self.ws, 'det_trainvalid'))
+            os.path.join(self.ws, 'det_trainvalid'),
+            'det')
 
 
     def test_det_t_f_t(self):
@@ -214,7 +211,8 @@ class TestMMDet(unittest.TestCase):
             testutils.data['det']['train'],
             None,
             testutils.data['det']['test'],
-            os.path.join(self.ws, 'det_traintest'))
+            os.path.join(self.ws, 'det_traintest'),
+            'det')
     
 
     def test_det_t_f_f(self):
@@ -223,7 +221,8 @@ class TestMMDet(unittest.TestCase):
             testutils.data['det']['train'],
             None,
             None,
-            os.path.join(self.ws, 'det_train'))
+            os.path.join(self.ws, 'det_train'),
+            'det')
 
 
     def test_segm_t_t_t(self):
@@ -232,7 +231,8 @@ class TestMMDet(unittest.TestCase):
             testutils.data['segm']['train'],
             testutils.data['segm']['valid'],
             testutils.data['segm']['test'],
-            os.path.join(self.ws, 'segm_trainvalidtest'))
+            os.path.join(self.ws, 'segm_trainvalidtest'),
+            'segm')
 
 
     def test_segm_t_t_f(self):
@@ -241,7 +241,8 @@ class TestMMDet(unittest.TestCase):
             testutils.data['segm']['train'],
             testutils.data['segm']['valid'],
             None,
-            os.path.join(self.ws, 'segm_trainvalid'))
+            os.path.join(self.ws, 'segm_trainvalid'),
+            'segm')
 
 
     def test_segm_t_f_t(self):
@@ -250,7 +251,8 @@ class TestMMDet(unittest.TestCase):
             testutils.data['segm']['train'],
             None,
             testutils.data['segm']['test'],
-            os.path.join(self.ws, 'segm_traintest'))
+            os.path.join(self.ws, 'segm_traintest'),
+            'segm')
     
     
     def test_segm_t_f_f(self):
@@ -259,10 +261,9 @@ class TestMMDet(unittest.TestCase):
             testutils.data['segm']['train'],
             None,
             None,
-            os.path.join(self.ws, 'segm_train'))
-
+            os.path.join(self.ws, 'segm_train'),
+            'segm')
 
 
 if __name__ == '__main__':
     unittest.main()
-

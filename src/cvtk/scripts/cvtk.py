@@ -7,17 +7,17 @@ import cvtk.ls
 
 
 
-def create(args):
+def generate_task_source(args):
     cvtk.ml.generate_source(args.script, task=args.task, vanilla=args.vanilla)
 
 
-def app(args):
-    cvtk.ml.generate_app(args.project,
-                         source=args.source,
-                         label=args.label,
-                         model=args.model,
-                         weights=args.weights,
-                         vanilla=args.vanilla)
+def generate_demoapp(args):
+    cvtk.ml.generate_demoapp(args.project,
+                             source=args.source,
+                             label=args.label,
+                             model=args.model,
+                             weights=args.weights,
+                             vanilla=args.vanilla)
 
 
 def split(args):
@@ -83,7 +83,7 @@ def main():
     parser_train.add_argument('--script', type=str, required=True)
     parser_train.add_argument('--task', type=str, choices=['cls', 'det', 'segm'], default='cls')
     parser_train.add_argument('--vanilla', action='store_true', default=False)
-    parser_train.set_defaults(func=create)
+    parser_train.set_defaults(func=generate_task_source)
 
     parser_train = subparsers.add_parser('app')
     parser_train.add_argument('--project', type=str, required=True)
@@ -92,9 +92,9 @@ def main():
     parser_train.add_argument('--model', type=str, default=True)
     parser_train.add_argument('--weights', type=str, required=True)
     parser_train.add_argument('--vanilla', action='store_true', default=False)
-    parser_train.set_defaults(func=app)
+    parser_train.set_defaults(func=generate_demoapp)
 
-    parser_split_text = subparsers.add_parser('split')
+    parser_split_text = subparsers.add_parser('text-split')
     parser_split_text.add_argument('--input', type=str, required=True)
     parser_split_text.add_argument('--output', type=str, required=True)
     parser_split_text.add_argument('--ratios', type=str, default='8:1:1')

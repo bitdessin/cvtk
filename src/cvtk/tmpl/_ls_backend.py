@@ -2,7 +2,7 @@ import os
 import tempfile
 import urllib
 from cvtk.ml.data import DataLabel
-from cvtk.ml.mmdetutils import MMDETCORE
+from cvtk.ml.mmdetutils import ModuleCore
 import label_studio_ml
 import label_studio_ml.model
 import label_studio_ml.api
@@ -22,7 +22,7 @@ class MLBASE(label_studio_ml.model.LabelStudioMLBase):
         # model settings
         self.temp_dpath = tempfile.mkdtemp()
         self.datalabel = DataLabel("__DATALABEL__")
-        self.model = MMDETCORE(self.datalabel, "__MODELCFG__", "__MODELWEIGHT__", workspace=self.temp_dpath)
+        self.model = ModuleCore(self.datalabel, "__MODELCFG__", "__MODELWEIGHT__", workspace=self.temp_dpath)
         self.version = '0.0.0'
 
 

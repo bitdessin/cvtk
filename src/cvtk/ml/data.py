@@ -15,7 +15,7 @@ class DataLabel():
     Methods implemented in the class provide a way to get the class index from the class name and vice versa.
 
     Args:
-        labels (tuple|list|str): A tuple or list,
+        labels: A tuple or list,
             or a path to a text file or coco format containing class labels.
             Text file should contain one class name per line.
     
@@ -41,7 +41,7 @@ class DataLabel():
         >>> print(DataLabel['flower'])
         1
     """
-    def __init__(self, labels):
+    def __init__(self, labels: list|tuple|str):
         if isinstance(labels, list) or isinstance(labels, tuple):
             self.__labels = labels
         elif isinstance(labels, str):
@@ -134,7 +134,7 @@ class SquareResize():
                                                  [0.229, 0.224, 0.225])
             ])
     """
-    def __init__(self, shape=600, bg_color = None, resample=PIL.Image.BILINEAR):
+    def __init__(self, shape: int=600, bg_color: tuple[int, int, int]|None=None, resample: object=PIL.Image.BILINEAR):
         self.shape = shape
         self.bg_color = bg_color
         self.resample = resample

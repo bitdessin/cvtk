@@ -276,25 +276,25 @@ class DataLoader():
         return self.__cfg        
 
 
-class MMDETCORE():
+class ModuleCore():
     """A class for object detection and instance segmentation
 
     This class provides user-friendly APIs for object detection and instance segmentation
     using MMDetection.
     There are four main methods are implemented in this class:
-    :func:`train <cvtk.ml.mmdetutils.MMDETCORE.train>`,
-    :func:`test <cvtk.ml.mmdetutils.MMDETCORE.test>`,
-    :func:`save <cvtk.ml.mmdetutils.MMDETCORE.save>`,
-    :func:`inference <cvtk.ml.mmdetutils.MMDETCORE.inference>`.
-    The :func:`train <cvtk.ml.mmdetutils.MMDETCORE.train>` method is used for training the model
+    :func:`train <cvtk.ml.mmdetutils.ModuleCore.train>`,
+    :func:`test <cvtk.ml.mmdetutils.ModuleCore.test>`,
+    :func:`save <cvtk.ml.mmdetutils.ModuleCore.save>`,
+    :func:`inference <cvtk.ml.mmdetutils.ModuleCore.inference>`.
+    The :func:`train <cvtk.ml.mmdetutils.ModuleCore.train>` method is used for training the model
     and perform validation and test if validation and test data are provided.
-    The :func:`test <cvtk.ml.mmdetutils.MMDETCORE.test>` method is used for testing the model with test data.
+    The :func:`test <cvtk.ml.mmdetutils.ModuleCore.test>` method is used for testing the model with test data.
     In general, the performance test is performed automatically after the training,
     but user can also run the test independently from the training process with
-    the :func:`test <cvtk.ml.mmdetutils.MMDETCORE.test>` method.
-    The :func:`save <cvtk.ml.mmdetutils.MMDETCORE.save>` method is used for saving the model weights,
+    the :func:`test <cvtk.ml.mmdetutils.ModuleCore.test>` method.
+    The :func:`save <cvtk.ml.mmdetutils.ModuleCore.save>` method is used for saving the model weights,
     configuration (design of model architecture), training log (e.g., mAP and loss per epoch), and test results.
-    The :func:`inference <cvtk.ml.mmdetutils.MMDETCORE.inference>` method is used for running inference
+    The :func:`inference <cvtk.ml.mmdetutils.ModuleCore.inference>` method is used for running inference
     with the trained model.
     The detailed usage of each method is described in the method documentation.
 
@@ -321,14 +321,14 @@ class MMDETCORE():
 
     Examples:
         >>> from cvtk.ml.data import DataLabel
-        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE
+        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, ModuleCore
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
         >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
         >>> weights = None # download from MMDetection repository
         >>> workspace = '/path/to/workspace'
         >>>
-        >>> model = MMDETCORE(datalabel, cfg, weights, workspace)
+        >>> model = ModuleCore(datalabel, cfg, weights, workspace)
         >>> 
         >>> train = DataLoader('/path/to/train/coco.json', 'train')
         >>> model.train(train, epoch=10)
@@ -340,23 +340,25 @@ class MMDETCORE():
                  weights: str|None=None,
                  workspace=None,
                  seed=None):
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.datalabel = self.__init_datalabel(datalabel)
-        self.cfg = self.__init_cfg(cfg, weights, seed)
-        self.model = None
-        self.tempd, self.workspace = self.__init_tempdir(workspace)
-        self.mmdet_log_dpath = None
-        self.test_stats = None
+        self.task_type = 'det'
+        if not(datalabel is None and cfg is None):
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            self.datalabel = self.__init_datalabel(datalabel)
+            self.cfg = self.__init_cfg(cfg, weights, seed)
+            self.model = None
+            self.__tempdir_obj, self.workspace = self.__init_tempdir(workspace)
+            self.mmdet_log_dpath = None
+            self.test_stats = None
     
 
     def __del__(self):
         try:
-            if self.model is not None:
+            if hasattr(self, '__tempdir_obj') and (self.model is not None):
                 del self.model
                 torch.cuda.empty_cache()
                 gc.collect()
-            if self.tempd is not None:
-                self.tempd.cleanup()
+            if hasattr(self, '__tempdir_obj') and (self.__tempdir_obj is not None):
+                self.__tempdir_obj.cleanup()
         except:
             logger.info(f'The temporary directory (`{self.workspace}`) created by cvtk '
                         f'cannot be removed automatically. Please remove it manually.')
@@ -470,7 +472,7 @@ class MMDETCORE():
         the model will undergo a final evaluation at the end of training,
         and the test results will also be saved in the workspace.
         The test can also be performed independently from the training process,
-        seed the :func:`test <cvtk.ml.mmdetutils.MMDETCORE.test>` method for more details.
+        seed the :func:`test <cvtk.ml.mmdetutils.ModuleCore.test>` method for more details.
 
         Args:
             train: A DataLoader class object.
@@ -482,14 +484,14 @@ class MMDETCORE():
 
     Examples:
         >>> from cvtk.ml.data import DataLabel
-        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE
+        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, ModuleCore
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
         >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
         >>> weights = None # download from MMDetection repository
         >>> workspace = '/path/to/workspace'
         >>>
-        >>> model = MMDETCORE(datalabel, cfg, weights, workspace)
+        >>> model = ModuleCore(datalabel, cfg, weights, workspace)
         >>> 
         >>> train = DataLoader(Dataset(datalabel, '/path/to/train/coco.json'), 'train')
         >>> model.train(train, epoch=10)
@@ -578,13 +580,13 @@ class MMDETCORE():
 
         Examples:
         >>> from cvtk.ml.data import DataLabel
-        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE
+        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, ModuleCore
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
         >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
         >>> weights = '/path/to/model.pth'
         >>>
-        >>> model = MMDETCORE(datalabel, cfg, weights, workspace)
+        >>> model = ModuleCore(datalabel, cfg, weights, workspace)
         >>> 
         >>> test = DataLoader('/path/to/test/coco.json', 'test')
         >>> metrics = model.test(test)
@@ -937,7 +939,7 @@ def __generate_source(script_fpath, task, vanilla=False):
             {'cvtk': [JsonComplexEncoder, Annotation, Image, ImageDeck, imread]},
             {'cvtk.format.coco': [calc_stats]},
             {'cvtk.ml.data': [DataLabel]},
-            {'cvtk.ml.mmdetutils': [DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog]}
+            {'cvtk.ml.mmdetutils': [DataPipeline, Dataset, DataLoader, ModuleCore, plot_trainlog]}
         ]
         tmpl = __insert_imports(tmpl, __get_imports(__file__))
         tmpl = __extend_cvtk_imports(tmpl, cvtk_modules)

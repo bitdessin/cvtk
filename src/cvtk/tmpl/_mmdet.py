@@ -2,14 +2,14 @@ import os
 import random
 from cvtk import ImageDeck
 from cvtk.ml.data import DataLabel
-from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, MMDETCORE, plot_trainlog
+from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, ModuleCore, plot_trainlog
 
 
 def train(label, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=10):
     temp_dpath = os.path.splitext(output_weights)[0]
 
     datalabel = DataLabel(label)
-    model = MMDETCORE(datalabel, "__TASKARCH__", None, workspace=temp_dpath)
+    model = ModuleCore(datalabel, "__TASKARCH__", None, workspace=temp_dpath)
 
     train = DataLoader(
                 Dataset(datalabel, train,
@@ -34,13 +34,14 @@ def train(label, train, valid, test, output_weights, batch_size=4, num_workers=8
                     output=os.path.splitext(output_weights)[0] + '.train_stats.train.png')
     if os.path.exists(os.path.splitext(output_weights)[0] + '.train_stats.valid.txt'):
         plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.valid.txt',
-                    output=os.path.splitext(output_weights)[0] + '.train_stats.valid.png')    
-        
+                    output=os.path.splitext(output_weights)[0] + '.train_stats.valid.png')
+
+
 
 def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
     datalabel = DataLabel(label)
     
-    model = MMDETCORE(datalabel, os.path.splitext(model_weights)[0] + '.py', model_weights, workspace=output)
+    model = ModuleCore(datalabel, os.path.splitext(model_weights)[0] + '.py', model_weights, workspace=output)
 
     data = DataLoader(
                 Dataset(datalabel, data, DataPipeline()),

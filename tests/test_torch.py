@@ -3,12 +3,12 @@ import unittest.util
 from cvtk import imlist
 from cvtk.ml import generate_source
 from cvtk.ml.data import DataLabel
-from cvtk.ml.torchutils import DataLabel, CLSCORE, DataLoader, Dataset, DataTransform, plot_trainlog, plot_cm
+from cvtk.ml.torchutils import DataLabel, ModuleCore, DataLoader, Dataset, DataTransform, plot_trainlog, plot_cm
 import unittest
 import testutils
 
 
-class TestTorch(unittest.TestCase):
+class TestScript(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
     
@@ -33,9 +33,14 @@ class TestTorch(unittest.TestCase):
                     '--test', testutils.data['cls']['test'],
                     '--output_weights', os.path.join(dpath, 'fruits.pth')])
 
+        testutils.run_cmd(['python', script, 'test',
+                    '--label', testutils.data['cls']['label'],
+                    '--data', testutils.data['cls']['test'],
+                    '--model_weights', os.path.join(dpath, 'fruits.pth'),
+                    '--output', os.path.join(dpath, 'test_results.txt')])
+
         testutils.run_cmd(['python', script, 'inference',
                     '--label', testutils.data['cls']['label'],
-                    #'--data', TU.data['cls']['test'],
                     '--data', testutils.data['cls']['samples'],
                     '--model_weights', os.path.join(dpath, 'fruits.pth'),
                     '--output', os.path.join(dpath, 'inference_results.txt')])
@@ -58,7 +63,7 @@ class TestTorch(unittest.TestCase):
     
 
 
-class TestTorchUtils(unittest.TestCase):
+class TestTorch(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.ws = testutils.set_ws('torch_torchutils')
@@ -84,7 +89,7 @@ class TestTorchUtils(unittest.TestCase):
         temp_dpath = os.path.splitext(output)[0]
 
         datalabel = DataLabel(self.label)
-        model = CLSCORE(datalabel, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
+        model = ModuleCore(datalabel, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
 
         train = DataLoader(
                 Dataset(datalabel, train, transform=DataTransform(224, is_train=True)),
@@ -110,7 +115,7 @@ class TestTorchUtils(unittest.TestCase):
                     os.path.splitext(output)[0] + '.test_outputs.cm.png')
             
 
-        model = CLSCORE(datalabel, 'resnet18', output, temp_dpath)
+        model = ModuleCore(datalabel, 'resnet18', output, temp_dpath)
         self.__inference(model, datalabel, self.sample, os.path.splitext(output)[0] + '.inference_results.txt')
         self.__inference(model, datalabel, imlist(self.sample), os.path.splitext(output)[0] + '.inference_results.txt')
         self.__inference(model, datalabel, imlist(self.sample)[0], os.path.splitext(output)[0] + '.inference_results.txt')

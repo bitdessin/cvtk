@@ -69,19 +69,19 @@ class TestScriptUtils(unittest.TestCase):
 
 
     def test_split_text(self):
-        testutils.run_cmd(['cvtk', 'split',
+        testutils.run_cmd(['cvtk', 'text-split',
                     '--input', testutils.data['cls']['all'],
                     '--output', os.path.join(self.ws, 'fruits_subset_1.txt'),
                     '--ratios', '6:3:1',
                     '--shuffle', '--stratify'])
         
-        testutils.run_cmd(['cvtk', 'split',
+        testutils.run_cmd(['cvtk', 'text-split',
                     '--input', testutils.data['cls']['all'],
                     '--output', os.path.join(self.ws, 'fruits_subset_2.txt'),
                     '--ratios', '6:3:1',
                     '--shuffle'])
         
-        testutils.run_cmd(['cvtk', 'split',
+        testutils.run_cmd(['cvtk', 'text-split',
                     '--input', testutils.data['cls']['all'],
                     '--output', os.path.join(self.ws, 'fruits_subset_3.txt'),
                     '--ratios', '6:3:1'])

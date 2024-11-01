@@ -1,5 +1,5 @@
 import os
-from cvtk.ml import generate_source, generate_app
+from cvtk.ml import generate_source, generate_demoapp
 import unittest
 import testutils
 
@@ -37,7 +37,7 @@ class TestDemoAPP(unittest.TestCase):
 
        
         if code_generator == 'source':
-            generate_app(app_project,
+            generate_demoapp(app_project,
                          source=script,
                          label=testutils.data[task]['label'],
                          model=model_cfg,

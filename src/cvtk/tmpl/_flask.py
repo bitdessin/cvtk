@@ -7,17 +7,17 @@ from werkzeug.utils import secure_filename
 import numpy as np
 import skimage.measure
 #%CVTK%# IF TASK=cls
-from cvtk.ml.torchutils import CLSCORE as MODULECORE
+from cvtk.ml.torchutils import ModuleCore
 #%CVTK%# ENDIF
 #%CVTK%# IF TASK=det,segm
-from cvtk.ml.mmdetutils import MMDETCORE as MODULECORE
+from cvtk.ml.mmdetutils import ModuleCore
 #%CVTK%# ENDIF
 
 # application variables
 APP_ROOT = pathlib.Path(__file__).resolve().parent
 APP_STORAGE = os.path.join(APP_ROOT, 'static', 'storage')
 APP_TEMP = os.path.join(APP_ROOT, 'tmp')
-MODEL = MODULECORE('__DATALABEL__', '__MODELCFG__','__MODELWEIGHT__', workspace=APP_TEMP)
+MODEL = ModuleCore('__DATALABEL__', '__MODELCFG__','__MODELWEIGHT__', workspace=APP_TEMP)
 if not os.path.exists(APP_STORAGE):
     os.makedirs(APP_STORAGE)
 if not os.path.exists(APP_TEMP):

@@ -1,1 +1,1 @@
-from ._base import split_dataset, generate_source, generate_app
+from ._base import split_dataset, generate_source, generate_demoapp
