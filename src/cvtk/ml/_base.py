@@ -4,8 +4,6 @@ import importlib
 import random
 import copy
 import re
-from .torchutils import __generate_source as generate_source_cls
-from .mmdetutils import __generate_source as generate_source_det
 from ._subutils import __estimate_source_task, __estimate_source_vanilla, __generate_app_html_tmpl
 
 
@@ -134,8 +132,10 @@ def generate_source(project: str, task: str='cls', vanilla: bool=False) -> None:
     """
     
     if task.lower() in ['cls', 'classification']:
+        from .torchutils import __generate_source as generate_source_cls
         generate_source_cls(project, vanilla)
     elif task.lower() in ['det', 'detection', 'seg', 'segm', 'segmentation']:
+        from .mmdetutils import __generate_source as generate_source_det
         generate_source_det(project, task, vanilla)
     else:
         raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`segm`) tasks.')

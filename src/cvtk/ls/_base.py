@@ -6,8 +6,6 @@ import tempfile
 import urllib
 import json
 import importlib
-from ..ml.torchutils import __generate_source as generate_source_cls
-from ..ml.mmdetutils import __generate_source as generate_source_det
 from ..ml._subutils import __estimate_source_task, __estimate_source_vanilla, __generate_app_html_tmpl
 import label_studio_sdk
 

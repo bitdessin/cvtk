@@ -3,8 +3,8 @@ import pprint
 import cvtk
 import cvtk.ml
 import cvtk.format
+import cvtk.format.coco
 import cvtk.ls
-
 
 
 def generate_task_source(args):

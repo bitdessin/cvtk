@@ -747,19 +747,23 @@ class ModuleCore():
             >>>     json.dump(coco_json, outfh)
         """
         input_images = []
-        if isinstance(data, DataLoader):
-            # test dataloader defined by mmdet
-            self.cfg.merge_from_dict(data.cfg)
-            data_dpath = self.cfg.test_dataloader.dataset.data_root
-            if data_dpath == '':
-                if self.cfg.test_dataloader.dataset.type == 'RepeatDataset':
-                    data_dpath = self.cfg.test_dataloader.dataset.dataset.ann_file
-                else:
-                    data_dpath = self.cfg.test_dataloader.dataset.ann_file
-            input_images = self.__load_images(data_dpath)
-            self.cfg.test_dataloader.dataset.data_root = ''
-        else:
-            input_images = self.__load_images(data)
+        
+        if not isinstance(data, DataLoader):
+            # dataloader is not given, set minimum resource for inference
+            data = DataLoader(
+                    Dataset(self.datalabel, data, DataPipeline()),
+                    phase='inference', batch_size=1, num_workers=1)
+        
+        # test dataloader defined by mmdet
+        self.cfg.merge_from_dict(data.cfg)
+        data_dpath = self.cfg.test_dataloader.dataset.data_root
+        if data_dpath == '':
+            if self.cfg.test_dataloader.dataset.type == 'RepeatDataset':
+                data_dpath = self.cfg.test_dataloader.dataset.dataset.ann_file
+            else:
+                data_dpath = self.cfg.test_dataloader.dataset.ann_file
+        input_images = self.__load_images(data_dpath)
+        self.cfg.test_dataloader.dataset.data_root = ''
 
         if self.model is None:
             self.model = mmdet.apis.init_detector(self.cfg, self.cfg.load_from, device=self.device)
