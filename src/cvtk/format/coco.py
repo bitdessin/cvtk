@@ -245,6 +245,76 @@ def reindex(input: str|dict,
 
 
 
+def remove(input: str|dict, output: str|None=None, images: list|None=None, categories: list|None=None, annotations: list|None=None,
+           ensure_ascii=False, indent=4) -> dict:
+    """Remove specific items from COCO format data
+
+    This function remove the specific images, categories, or annotations from COCO format data.
+    The IDs of deleted image, category, and annotation will disappear. The remaining IDs will not be sorted.
+    
+    Args:
+        input: The COCO annotation data to be re-indexed.
+        output: The re-indexed COCO annotation data will be saved to the file if the file path is given.
+        images: Remove images from coco format data by image ID if the items of list is intenger or by image name if the items of the list is string.
+        categories: Remove images from coco format data by image ID if the items of list is intenger or by image name if the items of the list is string.
+        annotations: Remove images from coco format data by image ID if the items of list is intenger or by image name if the items of the list is string.
+        ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
+        indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
+    """
+    if isinstance(images, str) or isinstance(images, int):
+        images = [images]
+    if isinstance(categories, str) or isinstance(categories, int):
+        categories = [categories]
+    if isinstance(annotations, str) or isinstance(annotations, int):
+        annotations = [annotations]
+    
+    if isinstance(input, str):
+        with open(input, 'r') as f:
+            cocodata = json.load(f)
+    else:
+        cocodata = copy.deepcopy(input)
+
+    rm_images = []
+    cocodata_images = []
+    if (images is not None) and (len(images) > 0):
+        for im in cocodata['images']:
+            if (im['id'] in images) or (im['file_name'] in images):
+                rm_images.append(im['id'])
+            else:
+                cocodata_images.append(im)
+    
+    rm_cates = []
+    cocodata_cates = []
+    if (categories is not None) and (len(categories) > 0):
+        for cate in cocodata['categories']:
+            if (cate['id'] in categories) or (cate['name'] in categories):
+                rm_cates.append(cate['id'])
+            else:
+                cocodata_cates.append(cate)
+
+    cocodata_anns = []
+    for ann in cocodata['annotations']:
+        if (annotations is not None) and (len(annotations) > 0):
+            if ann['id'] in annotations:
+                continue
+        if ann['image_id'] in rm_images:
+            continue
+        if ann['category_id'] in rm_cates:
+            continue
+        cocodata_anns.append(ann)
+    
+    cocodata['images'] = cocodata_images
+    cocodata['categories'] = cocodata_cates
+    cocodata['annotations'] = cocodata_anns
+
+    if output is not None:
+        with open(output, 'w') as f:
+            json.dump(cocodata, f, cls=JsonComplexEncoder, ensure_ascii=ensure_ascii, indent=indent)
+    
+    return cocodata
+
+
+
 
 def stats(input: str|dict, output: str|None=None, ensure_ascii: bool=False, indent: int|None=4) -> dict:
     """Calculate statistics of a COCO annotation file.

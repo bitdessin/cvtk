@@ -56,6 +56,25 @@ def coco_crop(args):
     cvtk.format.coco.crop(args.input, output=args.output)
 
 
+def coco_remove(args):
+    images = annotations = categories = None
+    if args.images:
+        images = args.images.split(',')
+        images = [int(i) if i.isdigit() else i for i in images]
+    if args.annotations:
+        annotations = args.annotations.split(',')
+        annotations = [int(i) if i.isdigit() else i for i in annotations]
+    if args.categories:
+        categories = args.categories.split(',')
+        categories = [int(i) if i.isdigit() else i for i in categories]
+
+    cvtk.format.coco.remove(args.input,
+                            output=args.output,
+                            images=images,
+                            categories=categories,
+                            annotations=annotations)
+
+
 def ls_export(args):
     cvtk.ls.export(args.project,
                    output=args.output,
@@ -124,6 +143,14 @@ def main():
     parser_split_text.add_argument('--input', type=str, required=True)
     parser_split_text.add_argument('--output', type=str, required=True)
     parser_split_text.set_defaults(func=coco_crop)
+
+    parser_split_text = subparsers.add_parser('coco-remove')
+    parser_split_text.add_argument('--input', type=str, required=True)
+    parser_split_text.add_argument('--output', type=str, required=True)
+    parser_split_text.add_argument('--images', type=str, required=False)
+    parser_split_text.add_argument('--categories', type=str, required=False)
+    parser_split_text.add_argument('--annotations', type=str, required=False)
+    parser_split_text.set_defaults(func=coco_remove)
 
     parser_split_text = subparsers.add_parser('ls-export')
     parser_split_text.add_argument('--project', type=str, required=True)

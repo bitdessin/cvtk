@@ -84,6 +84,29 @@ class TestBaseUtils(unittest.TestCase):
                                    os.path.basename(self.coco_files[0]))[0] + '.reindexed.json'))
 
     
+    def test_remove(self):
+        cocodata = cvtkcoco.remove(self.coco_files[0],
+                        os.path.join(self.ws,
+                               os.path.splitext(
+                                   os.path.basename(self.coco_files[0]))[0] + '.removed.json'),
+                        images=[1,
+                                'data/strawberry/train/images/2129c05b.jpg'],
+                        categories='flower')
+        
+        coco_images = []
+        for _ in cocodata['images']:
+            coco_images.append(_['id'])
+            coco_images.append(_['file_name'])
+        self.assertNotIn('data/strawberry/train/images/2129c05b.jpg', coco_images)
+        self.assertNotIn(1, coco_images)
+        
+        coco_cates = []
+        for _ in cocodata['categories']:
+            coco_cates.append(_['id'])
+            coco_cates.append(_['name'])
+        self.assertNotIn('flower', coco_cates)
+
+
     def test_stats(self):
         stats = cvtkcoco.stats(self.coco_files[2])
         print(stats)
@@ -155,11 +178,19 @@ class TestScriptUtils(unittest.TestCase):
         self.assertEqual(input_coco_3.categories, output_coco.categories)
 
 
+    def test_coco_remove(self):
+        testutils.run_cmd(['cvtk', 'coco-remove',
+                    '--input', testutils.data['det']['train'],
+                    '--output', os.path.join(self.ws, 'strawberry.remove.json'),
+                    '--images', '1,data/strawberry/train/images/2129c05b.jpg',
+                    '--categories', 'flower'])
+
+
+
     def test_coco_stats(self):
         testutils.run_cmd(['cvtk', 'coco-stats',
                     '--input', testutils.data['det']['train']])
     
-
 
 
 

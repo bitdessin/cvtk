@@ -90,7 +90,7 @@ Note that when specifying multiple files, separate them with commas without spac
 
 .. code-block::
 
-    cvtk coco-combine
+    cvtk coco-combine \
         --inputs train.json,valid.json,test.json \
         --output dataset.json
 
@@ -114,7 +114,7 @@ saving the output as subset.json.
 
 .. code-block::
 
-    cvtk coco-split
+    cvtk coco-split \
         --input ./data/strawberry/train/bbox.json \
         --output ./output/subset.bbox.json \
         --ratios 6:2:2 \
@@ -124,6 +124,28 @@ Upon successful execution, three files :file:`subset.json.0`, :file:`subset.json
 each containing images in the specified 6:2:2 ratio.
 
 This functionality can also be executed from Python using the :func:`split <cvtk.format.coco.split>` method.
+
+
+
+
+Annotation Rearrangement
+========================
+
+To remove a specific images or categories from a given COCO format file,
+use `cvtk coco-remove` command.
+The following example removes two images,
+a image with ID `1` and other image with file name `data/strawberry/train/images/2129c05b.jpg`,
+and a category named `flower`.
+
+
+.. code-block::
+    cvtk coco-remove \
+        --input ./data/strawberry/train/bbox.json \
+        --output ./output/subset.bbox.json \
+        --images 1,data/strawberry/train/images/2129c05b.jpg \
+        --categories flower
+
+This functionality can also be executed from Python using the :func:`split <cvtk.format.coco.remove>` method.
 
 
 
@@ -137,7 +159,7 @@ Convert to absolute paths if necessary.
 
 .. code-block::
 
-    cvtk coco-crop
+    cvtk coco-crop \
         --input dataset.json \
         --output cropped_images
 
@@ -160,7 +182,7 @@ and the number of objects annotated for each category, use the ``cvtk coco-stat`
 
 .. code-block::
 
-    cvtk coco-stat
+    cvtk coco-stat \
         --input ./data/strawberry/train/bbox.json
 
 
