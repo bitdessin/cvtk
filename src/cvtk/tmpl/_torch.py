@@ -1,13 +1,14 @@
 import os
+import torch
 from cvtk.ml.data import DataLabel
 from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ModuleCore, plot_trainlog, plot_cm
 
 
-def train(label, train, valid, test, output_weights, batch_size=4, num_workers=8, epoch=10):
+def train(label, train, valid, test, input_weights, output_weights, batch_size=4, num_workers=8, epoch=10):
     temp_dpath = os.path.splitext(output_weights)[0]
 
     datalabel = DataLabel(label)
-    model = ModuleCore(datalabel, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
+    model = ModuleCore(datalabel, 'resnet18', input_weights, temp_dpath)
     
     train = DataLoader(
                 Dataset(datalabel, train, transform=DataTransform(224, is_train=True)),
@@ -21,7 +22,9 @@ def train(label, train, valid, test, output_weights, batch_size=4, num_workers=8
                     Dataset(datalabel, test, transform=DataTransform(224, is_train=False)),
                     batch_size=batch_size, num_workers=num_workers)
 
-    model.train(train, valid, test, epoch=epoch)
+    criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(model.model.parameters(), lr=0.001)
+    model.train(train, valid, test, epoch=epoch, optimizer=optimizer, criterion=criterion)
     model.save(output_weights)
 
     plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.txt',
@@ -67,7 +70,7 @@ def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
 
 
 def _train(args):
-    train(args.label, args.train, args.valid, args.test, args.output_weights, args.batch_size, args.num_workers, args.epoch)
+    train(args.label, args.train, args.valid, args.test, args.input_weights, args.output_weights, args.batch_size, args.num_workers, args.epoch)
 
 def _test(args):
     test(args.label, args.data, args.model_weights, args.output, args.batch_size, args.num_workers)
@@ -87,6 +90,7 @@ if __name__ == '__main__':
     parser_train.add_argument('--train', type=str, required=True)
     parser_train.add_argument('--valid', type=str, required=False)
     parser_train.add_argument('--test', type=str, required=False)
+    parser_train.add_argument('--input_weights', type=str, required=False, default='ResNet18_Weights.DEFAULT')
     parser_train.add_argument('--output_weights', type=str, required=True)
     parser_train.add_argument('--batch_size', type=int, default=2)
     parser_train.add_argument('--num_workers', type=int, default=8)
