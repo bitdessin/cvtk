@@ -9,6 +9,8 @@ import pathlib
 import io
 import base64
 import copy
+
+from matplotlib.pylab import annotations
 import filetype
 import logging
 import gzip
@@ -102,7 +104,7 @@ class DataPipeline():
     def cfg(self):
         return self.__cfg
 
-    
+
 class Dataset():
     """Generate dataset configuration
 
@@ -127,6 +129,7 @@ class Dataset():
         if dataset is None:
             self.__cfg = None
         elif isinstance(dataset, str) and dataset.endswith('.json'):
+            self.__check_coco_format(datalabel, dataset)
             self.__cfg = dict(
                 metainfo=dict(classes=datalabel.labels),
                 type='CocoDataset',
@@ -134,26 +137,27 @@ class Dataset():
                 data_prefix=dict(img=''),
                 ann_file=os.path.abspath(dataset),
                 pipeline=pipeline.cfg,
+                filter_cfg=dict(filter_empty_gt=True, min_size=0),
             )
             if repeat_dataset:
                 self.__cfg = dict(
                     type='RepeatDataset',
                     times=1,
-                    dataset=self.__cfg
+                    dataset=self.__cfg,
                 )
         elif isinstance(dataset, (list, tuple)):
             self.__cfg = dict(
                 metainfo=dict(classes=datalabel.labels),
                 type='CocoDataset',
                 pipeline=pipeline.cfg,
-                data_root=dataset
+                data_root=dataset,
             )
         elif isinstance(dataset, str):
             self.__cfg = dict(
                 metainfo=dict(classes=datalabel.labels),
                 type='CocoDataset',
                 pipeline=pipeline.cfg,
-                data_root=os.path.abspath(dataset)
+                data_root=os.path.abspath(dataset),
             )
         elif isinstance(dataset, dict):
             self.__cfg = dataset
@@ -163,6 +167,39 @@ class Dataset():
     @property
     def cfg(self):
         return self.__cfg
+    
+
+    def __check_coco_format(self, datalabel, ann_fpath):
+        with open(ann_fpath) as fh:
+            cocodict = json.load(fh)
+        
+        # check coco format
+        if 'images' not in cocodict:
+            raise ValueError(f'Invalid COCO format: {ann_fpath}. No "images" field.')
+        if 'annotations' not in cocodict:
+            raise ValueError(f'Invalid COCO format: {ann_fpath}. No "annotations" field.')
+        if 'categories' not in cocodict:
+            raise ValueError(f'Invalid COCO format: {ann_fpath}. No "categories" field.')
+        if 'info' in cocodict:
+            Warning(f'COCO format file without "info" field may cause processing errors in some versions of MMDetection. It is recommended to add an "info" field into the file: {ann_fpath}.')
+
+        # check file contains data
+        if (len(cocodict['images']) == 0):
+            raise ValueError(f'No images in "images" field.')
+        if (len(cocodict['annotations']) == 0):
+            raise ValueError(f'No annotations in "annotations" field.')
+        if (len(cocodict['categories']) == 0):
+            raise ValueError(f'No categories in "categories" field.')
+
+        # check label names
+        coco_classes = [cat['name'] for cat in sorted(cocodict['categories'], key=lambda x: x['id'])]
+        input_classes = datalabel.labels
+        if len(coco_classes) != len(input_classes):
+            raise ValueError(f'The number of classes in annotations ({len(coco_classes)}) is different from that in datalabel ({len(input_classes)}).')
+        for i in range(len(coco_classes)):
+            if coco_classes[i] != input_classes[i]:
+                raise ValueError(f'Class names are different between annotations and datalabel at index {i}: "{coco_classes[i]}" (in annotations) vs "{input_classes[i]}" (in datalabel).')
+        
 
 
 class DataLoader():

@@ -315,7 +315,7 @@ class ModuleCore():
                 else:
                     module = eval(f'torchvision.models.{model}(weights=torchvision.models.{weights})')
         
-        elif isinstance(model, str):
+        elif isinstance(model, torchvision.models):
             is_torch_model = False
             for name in dir(torchvision.models):
                 obj = getattr(torchvision.models, name)
