@@ -1,4 +1,3 @@
-
 import os
 import shutil
 import zipfile
@@ -11,26 +10,20 @@ import label_studio_sdk
 
 
 
-def __get_client(host, port, api_key=None):
-    url = f'{host}:{port}'
-    if api_key is None and api_key == '':
-        api_key = os.getenv('LABEL_STUDIO_API_KEY')
-        if api_key is None:
-            raise ValueError(f'API KEY is required to access Label Studio API. '
-                             f'Set the API KEY with the argument `api_key` or '
-                             f'export the API KEY as an environment variable '
-                             f'`LABEL_STUDIO_API_KEY` (e.g., export LABEL_STUDIO_API_KEY=cdc903.....z3r9xkmr')
-    return label_studio_sdk.Client(url=url, api_key=api_key)
+def __get_client(url=None, token=None):
+    url = os.getenv('LABEL_STUDIO_URL', url)
+    token = os.getenv('LABEL_STUDIO_API_KEY', token)
+    if token is None or url is None:
+        raise ValueError(f'This function requires the environment variables of '
+                         f'`LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` to be set.')
+    return label_studio_sdk.Client(url=url, api_key=token)
 
 
 def export(project: int,
            output: str,
            format: str='COCO',
-           host: str='http://localhost',
-           port: int=8080,
-           api_key: str|None=None,
-           indent: int=4,
-           ensure_ascii: bool=False) -> dict:
+           url: str|None=None,
+           token: str|None=None) -> dict:
     """
     Export annotations from Label Studio project.
 
@@ -65,7 +58,7 @@ def export(project: int,
                           host='localhost', port=8080)
         >>> 
     """
-    client = __get_client(host, port, api_key)
+    client = __get_client(url=url, token=token)
     prj = client.get_project(project)
     ls_data_root = os.getenv('LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT')
     format = format.upper()
@@ -98,16 +91,17 @@ def export(project: int,
                 img['file_name'] = urllib.parse.unquote(img['file_name'])
                 
             with open(output, 'w') as f:
-                json.dump(exported_data, f, indent=indent, ensure_ascii=ensure_ascii)
+                json.dump(exported_data, f, ensure_ascii=True)
  
         return exported_data
     
 
 
 def generate_app(project: str, source: str, label: str, model: str, weights: str, vanilla=False) -> None:
-    """Generate a FastAPI application for inference of a classification or detection model
+    """Generate ML backend for Assisted Labeling in Label Studio.
 
-    This function generates a FastAPI application for inference of a classification or detection model.
+    This function generates an backend server to help assisted labeling 
+    in Label Studio.
     """
 
     if not os.path.exists(project):
@@ -144,5 +138,5 @@ def generate_app(project: str, source: str, label: str, model: str, weights: str
     tmpl = tmpl.replace('__DATALABEL__', data_label)
     tmpl = tmpl.replace('__MODELCFG__', model_cfg)
     tmpl = tmpl.replace('__MODELWEIGHT__', model_weights)
-    with open(os.path.join(project, 'main.py'), 'w') as fh:
+    with open(os.path.join(project, 'mlbackend.py'), 'w') as fh:
         fh.write(tmpl)

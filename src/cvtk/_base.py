@@ -185,9 +185,9 @@ class Annotation():
     @property
     def scores(self) -> list[float]:
         return self.__scores
-    
-    
-    def dump(self, indent: int|None=None, ensure_ascii: bool=True) -> str:
+
+
+    def dump(self, format: str='dict', indent: int|None=None, ensure_ascii: bool=True) -> str:
         """Dump the annotation data to string in JSON format.
 
         Args:
@@ -203,7 +203,11 @@ class Annotation():
             '[{"label": "leaf", "bbox": [0, 0, 10, 10], "mask": null, "score": null, "area": 100}, {"label": "flower", "bbox": [10, 10, 20, 20], "mask": null, "score": null, "area": 100}, {"label": "root", "bbox": [20, 20, 30, 30], "mask": null, "score": null, "area": 100}]'
         """
         ann_dict = [self[i] for i in range(len(self))]
-        return json.dumps(ann_dict, cls=JsonComplexEncoder, indent=indent, ensure_ascii=ensure_ascii)
+        if format.lower() == 'json':
+            return json.dumps(ann_dict, cls=JsonComplexEncoder, indent=indent, ensure_ascii=ensure_ascii)
+
+        return ann_dict
+        
 
 
 
@@ -274,6 +278,30 @@ class Image():
     @property
     def annotations(self):
         return self.__annotations
+
+
+    def dump(self, format: str='dict', indent: int|None=None, ensure_ascii: bool=True) -> str:
+        """Dump the image data and annotations to string in JSON format.
+
+        Args:
+            format: The format of the dumped data. Default is 'dict'.
+                Options are 'dict' and 'json'.
+            indent: The indentation of the JSON string. Default is `None`.
+            ensure_ascii: Ensure the string is ASCII. Default is `True`.
+
+        Returns:
+            str: JSON string of the image data and annotations.
+        """
+        im_dict = {
+            'file_path': self.__source,
+            'width' : self.__width,
+            'height': self.__height,
+            'annotations': self.__annotations.dump(format='dict') if self.__annotations is not None else []
+        }
+        if format.lower() == 'json':
+            return json.dumps(im_dict, cls=JsonComplexEncoder, indent=indent, ensure_ascii=ensure_ascii)
+        
+        return im_dict
 
 
     def draw(self,

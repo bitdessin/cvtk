@@ -1,64 +1,84 @@
 import os
-import tempfile
+import argparse
 import urllib
+import shutil
+import datetime
+import tempfile
+import PIL.Image
+import torch
 from cvtk.ml.data import DataLabel
-from cvtk.ml.mmdetutils import ModuleCore
+from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, ModuleCore
 import label_studio_ml
 import label_studio_ml.model
 import label_studio_ml.api
+import label_studio_tools
 
 
 class MLBASE(label_studio_ml.model.LabelStudioMLBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # laebl config
-        self.LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT = os.getenv('LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT')
+        # basic params
+        self.LABEL_STUDIO_URL = os.getenv('LABEL_STUDIO_URL', None)
+        self.LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT = os.getenv('LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT', None)
+        self.LABEL_STUDIO_BASE_DATA_DIR = os.getenv('LABEL_STUDIO_BASE_DATA_DIR', None)
+
+        # label config
         from_name, schema = list(self.parsed_label_config.items())[0]
         self.from_name = from_name
         self.to_name = schema['to_name'][0]
         self.labels = schema['labels']
 
         # model settings
+        self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.temp_dpath = tempfile.mkdtemp()
         self.datalabel = DataLabel("__DATALABEL__")
         self.model = ModuleCore(self.datalabel, "__MODELCFG__", "__MODELWEIGHT__", workspace=self.temp_dpath)
+        self.model.to(self.device)
         self.version = '0.0.0'
 
 
     def __del__(self):
-        import shutil
         shutil.rmtree(self.temp_dpath)
         
 
-
-    def fit(self, *args, **kwargs):
-        return {'labels': '', 'model_file': ''}
+    def fit(self, tasks, workdir=None, **kwargs):
+        event = kwargs.get('event', None)
+        if event == 'START_TRAINING':
+            raise NotImplementedError('Training is not implemented yet.')
+        return {'labels': '', 'model_file': '', 'version': ''}
     
 
-    def predict(self, tasks, **kwargs):
+    def predict(self, tasks, context, **kwargs):
+        self.mdoel.eval()
+
         target_images = []
         for task in tasks:
-            target_images.append(self.__abspath(task['data']['image']))
+            target_images.append(self.__get_image(task))
 
-        pred_outputs = self.model.inference(target_images)
-        for i, pred_output in enumerate(pred_outputs):
-            pred_outputs[i] = self.__convert(pred_output)
-        
-        return pred_outputs
+        with torch.no_grad():
+            outputs = self.model.inference(target_images)
+                
+        return [self.__detoutput2lsjson(o) for o in outputs]
 
-        
-    def __abspath(self, filename):
-        filename = filename.replace('/data/local-files/?d=', '')
-        if self.LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT is not None:
-            filename = os.path.join(self.LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT, filename)
-        return urllib.parse.unquote(filename)
-    
 
-    def __convert(self, im):
+    def __get_image(self, task):
+        im_fpath = task['data']['image']
+        if '/data/local-files/?d=' in im_fpath:
+            im_fpath = label_studio_tools.core.utils.io.get_local_path(task['data']['image'], task_id=task['id'])
+        elif '/data/upload/' in im_fpath:
+            im_fpath = im_fpath.replace('/data/', '')
+            im_fpath = os.path.join(self.LABEL_STUDIO_BASE_DATA_DIR, 'media', im_fpath)
+        else:
+            print('Warning: cannot recognize the file path format.')
+            print(im_fpath)
+            print('-----------')
+        return urllib.parse.unquote(im_fpath)
+
+
+    def __detoutput2lsjson(self, im):
         obj_instances = []
         for ann in im.annotations:
-            # skip low score annotations
             if ann['score'] < 0.5:
                 continue
 
@@ -92,18 +112,27 @@ class MLBASE(label_studio_ml.model.LabelStudioMLBase):
 
 
 
-app = label_studio_ml.api.init_app(
-    model_class=MLBASE,
-    model_dir=os.environ.get('MODEL_DIR', os.path.dirname(__file__)),
-    redis_queue=os.environ.get('RQ_QUEUE_NAME', 'default'),
-    redis_host=os.environ.get('REDIS_HOST', 'localhost'),
-    redis_port=os.environ.get('REDIS_PORT', 6379)
-)
+
+if __name__ == '__main__':
+    if not os.getenv('LABEL_STUDIO_BASE_DATA_DIR'):
+        Warning('Environment variable "LABEL_STUDIO_BASE_DATA_DIR" is not defined. It is required to treat images uploaded to Label Studio via API or web browser.')
+    if not os.getenv('LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT'):
+        Warning('Environment variable "LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT" is not defined. It is required to treat images synced from local storage.')
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--host', type=str, default='0.0.0.0')
+    parser.add_argument('--port', type=int, default=8080)
+    args = parser.parse_args()
+
+    app = label_studio_ml.api.init_app(
+        model_class=MLBASE,
+        model_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'model_dir'),
+    )
+    app.run(host=args.host, port=args.port, debug=True)
 
 
 """
 Example:
 
-gunicorn --bind 0.0.0.0:8600  main:app --reload
+    python mlbackend.py
 """
-

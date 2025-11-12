@@ -79,9 +79,8 @@ def ls_export(args):
     cvtk.ls.export(args.project,
                    output=args.output,
                    format=args.format,
-                   host=args.host,
-                   port=args.port,
-                   api_key=args.apikey)
+                   url=args.url,
+                   token=args.token)
 
 
 def ls_backend(args):
@@ -156,9 +155,8 @@ def main():
     parser_split_text.add_argument('--project', type=str, required=True)
     parser_split_text.add_argument('--output', type=str, required=True)
     parser_split_text.add_argument('--format', type=str, required=False, default='coco')
-    parser_split_text.add_argument('--host', type=str, required=False, default='localhost')
-    parser_split_text.add_argument('--port', type=str, required=False, default=8080)
-    parser_split_text.add_argument('--apikey', type=str, required=False, default=None)
+    parser_split_text.add_argument('--url', type=str, required=False, default=None)
+    parser_split_text.add_argument('--token', type=str, required=False, default=None)
     parser_split_text.set_defaults(func=ls_export)
 
     parser_train = subparsers.add_parser('ls-backend')

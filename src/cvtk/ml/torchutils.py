@@ -614,18 +614,17 @@ class ModuleCore():
         return self.test_stats
 
 
-    def inference(self, data, value='prob+label', format='pandas', batch_size=32, num_workers=8):
+    def inference(self, data, format='pandas', batch_size=32, num_workers=8):
         """Perform inference with the input images
 
         Perform inference with the input images with the trained model.
         The format of ouput can be specified with `output` and `format` arguments.
 
         Args:
-            dataloader (torch.utils.data.DataLoader): A dataloader for inference.
-            output (str): A string to specify the information of inference result for output.
-                Probabilities ('prob'), labels ('label'), or both ('prob+label') can be specified.
-            format (str): A string to specify output format in Pandas Data.Frame ('pandas'),
-                NumPy array ('numpy'), list ('list'), or tuple ('tuple').
+            dataloader (torch.utils.data.DataLoader): File path to an image or list of file paths, or a dataloader for inference.
+            format (str): A string to specify output format in Pandas Data.Frame ('pandas'), list ('list), or dictionary ('dict').
+            batch_size (int): A batch size for inference.
+            num_workers (int): The number of workers for data loading.
         
         Examples:
             >>> import torch
@@ -662,42 +661,37 @@ class ModuleCore():
                 outputs = self.model(inputs)
             probs.append(torch.nn.functional.softmax(outputs, dim=1).detach().cpu().numpy())
         probs = np.concatenate(probs, axis=0)
-        labels = self.datalabel[probs.argmax(axis=1).tolist()]
+        labels = self.datalabel.labels #[probs.argmax(axis=1).tolist()]
         
-        return self.__format_inference_output(probs, labels, dataloader.dataset.x, self.datalabel.labels, value, format)
+        return self.__format_inference_output(probs, labels, dataloader.dataset.x, format)
 
 
 
-    def __format_inference_output(self, probs, labels, images, cl, value, format):
-        if value == 'prob':
-            if format in ['list']:
-                return probs.tolist()
-            elif format in ['tuple']:
-                return tuple(probs.tolist())
-            elif format in ['numpy', 'np']:
-                return probs
-            else:
-                return pd.DataFrame(probs, index=images, columns=cl)
-        elif value == 'label':
-            if format in ['list']:
-                return labels
-            elif format in ['tuple']:
-                return tuple(labels)
-            elif format in ['numpy', 'np']:
-                raise ValueError('The inferenced labels cannot be converted to numpy array, use `list` or `tuple` instead.')
-            else:
-                return pd.DataFrame(labels, index=images, columns=['prediction'])    
+    def __format_inference_output(self, probs, labels, images, format):
+        format = format.lower()
+        
+        if format in ['np', 'numpy', 'array']:
+            outputs = probs
+            
+        elif format in ['list', 'tuple']:
+            outputs = []
+            for i in range(probs.shape[0]):
+                outputs.append(probs[i].tolist())
+                
+        if format == 'dict':
+            outputs = []
+            for i in range(probs.shape[0]):
+                output_ = []
+                for l_, p_ in zip(labels, probs[i].tolist()):
+                    output_.append({'label': l_, 'score': p_})
+                outputs.append(output_)
+            
         else:
-            if format in ['list']:
-                return list(zip(probs.tolist(), labels))
-            elif format in ['tuple']:
-                return tuple(zip(probs.tolist(), labels))
-            elif format in ['numpy', 'np']:
-                raise ValueError('The inferenced labels cannot be converted to numpy array, use `list` or `tuple` instead.')
-            else:
-                return pd.DataFrame(np.concatenate([np.array(labels).reshape(-1, 1), probs], axis=1),
-                                    index=images, columns=['prediction'] + cl)
+            outputs = pd.DataFrame(probs, columns=labels, index=images)
+            
+        return outputs
 
+        
 
 
 def plot_trainlog(train_log, output=None, title='Training Statistics', mode='lines', width=600, height=800, scale=1.0):
