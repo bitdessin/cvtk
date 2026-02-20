@@ -20,7 +20,7 @@ class DataLabel():
             Text file should contain one class name per line.
     
     Examples:
-        >>> from cvtk.ml import DataLabel
+        >>> from cvtk.ml.data import DataLabel
         >>> 
         >>> labels = ['leaf', 'flower', 'root']
         >>> DataLabel = DataLabel(labels)
@@ -30,12 +30,11 @@ class DataLabel():
         1
         >>> len(DataLabel)
         3
-        >>> DataLabel.classes
+        >>> DataLabel.labels
         ['leaf', 'flower', 'root']
         >>> 
         >>> 
-        >>> labels = 'labels.txt'
-        >>> DataLabel = DataLabel(labels)
+        >>> DataLabel = DataLabel('labels.txt')
         >>> print(DataLabel[1])
         'flower'
         >>> print(DataLabel['flower'])
@@ -90,6 +89,15 @@ class DataLabel():
         return self.__labels
 
 
+    def save(self, output):
+        """Save class labels to a text file
+
+        Args:
+            output (str): The path to the output text file.
+        """
+        with open(output, 'w') as fh:
+            fh.write('\n'.join(self.__labels))    
+    
 
 
 class SquareResize():

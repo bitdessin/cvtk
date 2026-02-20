@@ -730,6 +730,7 @@ class ModuleCore():
         
         cfg_fpath = os.path.splitext(output)[0] + '.py'
         self.cfg.dump(cfg_fpath)
+        self.datalabel.save(os.path.splitext(output)[0] + '.dl.txt')
 
         self.__write_trainlog(os.path.splitext(output)[0] + '.train_stats')
 

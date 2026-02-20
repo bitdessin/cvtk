@@ -1,5 +1,6 @@
 import os
 import random
+import math
 import gzip
 import importlib
 import filetype
@@ -19,6 +20,7 @@ import torchvision
 import torchvision.transforms.v2
 from cvtk.ml.data import DataLabel
 from ._subutils import __get_imports, __insert_imports, __extend_cvtk_imports, __del_docstring
+
 
 
 
@@ -56,7 +58,7 @@ class DataTransform():
             self.pipeline = torchvision.transforms.Compose([
                     torchvision.transforms.v2.ToImage(),
                     torchvision.transforms.v2.Resize(size=(shape[0] + 50, shape[1] + 50), antialias=True),
-                    torchvision.transforms.v2.RandomResizedCrop(size=shape, antialias=True),
+                    torchvision.transforms.v2.RandomResizedCrop(size=shape, scale=(0.8, 1.0), antialias=True),
                     torchvision.transforms.v2.RandomHorizontalFlip(0.5),
                     torchvision.transforms.v2.RandomAffine(45),
                     torchvision.transforms.v2.ToDtype(torch.float32, scale=True),
@@ -71,7 +73,16 @@ class DataTransform():
                                                         std=[0.229, 0.224, 0.225])])
 
 
-class Dataset(torch.utils.data.Dataset):
+
+def Dataset(datalabel, dataset, transform, textiter=False, upsampling=False):
+    transform=transform.pipeline if isinstance(transform, DataTransform) else transform
+    if textiter:
+        return DatasetIterable_(datalabel, dataset, transform)
+    else:
+        return Dataset_(datalabel, dataset, transform, upsampling=upsampling)
+
+
+class Dataset_(torch.utils.data.Dataset):
     """A class to manupulate image data for training and inference
     
     Dataset is a class that generates a dataset for training or testing with PyTorch.
@@ -117,7 +128,7 @@ class Dataset(torch.utils.data.Dataset):
                  transform: torchvision.transforms.Compose|DataTransform|None=None,
                  upsampling: bool=False):
         if transform is not None and isinstance(transform, DataTransform):
-            transform = transform.pipeline
+            transform = transform.pipeline            
         self.transform = transform
         self.upsampling = upsampling
         self.x , self.y = self.__load_images(dataset, datalabel)
@@ -194,7 +205,7 @@ class Dataset(torch.utils.data.Dataset):
 
 
     def __unbiased_classes(self, x, y):
-        n_images = [[]] * len(self.datalabel)
+        n_images = [[] for _ in range(len(self.datalabel))]
         for i in range(len(y)):
             n_images[y[i]].append(i)
 
@@ -206,6 +217,77 @@ class Dataset(torch.utils.data.Dataset):
                 y.extend([y[i] for i in n_images_sampled])
 
         return x, y
+
+
+
+
+
+class DatasetIterable_(torch.utils.data.IterableDataset):
+    def __init__(self,
+                 datalabel,
+                 dataset,
+                 transform=None,
+                 shuffle=False):
+        self.dataset = dataset
+        self.datalabel = datalabel
+        self.transform = transform
+        self.shuffle = shuffle
+        
+        self.n = self._calc_n_samples(self.dataset)
+        
+    
+    def _calc_n_samples(self, dataset):
+        openfile_ = gzip.open if self.dataset.endswith(('.gz', '.gzip')) else open
+        with openfile_(self.dataset, 'rt') as f:
+            return sum(1 for _ in f)
+        
+    
+    def _open_file(self):
+        if self.dataset.endswith(('.gz', '.gzip')):
+            return gzip.open(self.dataset, 'rt')
+        else:
+            return open(self.dataset, 'r')
+
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+
+        if worker_info is None:
+            start = 0
+            step = 1
+        else:
+            start = worker_info.id
+            step = worker_info.num_workers
+        with self._open_file() as f:
+            for i, line in enumerate(f):
+                if i % step != start:
+                    continue
+
+                words = line.rstrip().split('\t')
+                img_path = words[0]
+
+                if len(words) >= 2:
+                    label = self.datalabel[words[1]]
+                else:
+                    label = None
+
+                img = PIL.Image.open(img_path).convert('RGB')
+                img = PIL.ImageOps.exif_transpose(img)
+
+                if self.transform is not None:
+                    img = self.transform(img)
+
+                if label is None:
+                    yield img
+                else:
+                    yield img, label
+    
+    
+    def __len__(self):
+        return self.n
+
+
+
+
 
 
 
@@ -304,6 +386,7 @@ class ModuleCore():
 
 
     def __init_model(self, model, weights, n_classes):
+        # check mode type
         if isinstance(model, str):
             if weights is None:
                 module = eval(f'torchvision.models.{model}(weights=None)')
@@ -333,7 +416,7 @@ class ModuleCore():
             raise ValueError('Invalid model type: {}'.format(type(model)))
 
 
-
+        # fix the output layer
         def __set_output(module, n_classes):
             last_layer_name = None
             last_layer = None
@@ -358,11 +441,28 @@ class ModuleCore():
                 setattr(sub_module, layers[-1], new_layer)
 
             return last_layer_name, last_layer
-
-        __set_output(module, n_classes)
-
+        
+        # load weights
+        # As the weights may have been pre-trained with different number of classes,
+        # fix the output layer matching the number of classes during loading weights,
+        # and then fix it to match the number of classes of the current datalabel if necessary.
+        datalabel_loaded = None
         if weights is not None and os.path.exists(weights):
-            module.load_state_dict(torch.load(weights))
+            dl_path = os.path.splitext(weights)[0] + '.dl.txt'
+
+            if os.path.exists(dl_path):
+                datalabel_loaded = DataLabel(dl_path)
+                __set_output(module, len(datalabel_loaded))
+                 
+            state_dict = torch.load(weights, map_location='cpu')
+            module.load_state_dict(state_dict, strict=False)
+        
+            if (datalabel_loaded is None) or (len(datalabel_loaded.labels) != n_classes):
+                __set_output(module, n_classes)
+                print('n_classes is finally changed to '+ str(n_classes))
+        
+        else:
+            __set_output(module, n_classes)
         
         return module
     
@@ -375,7 +475,7 @@ class ModuleCore():
 
 
 
-    def train(self, train, valid=None, test=None, epoch=20, optimizer=None, criterion=None, resume=False):
+    def train(self, train, valid=None, test=None, epoch=20, optimizer='auto', criterion='auto', scaler='auto', resume=False):
         """Train the model with the provided dataloaders
 
         Train the model with the provided dataloaders. The training statistics are saved in the temporary directory.
@@ -424,8 +524,9 @@ class ModuleCore():
         dataloaders = {'train': train, 'valid': valid, 'test': test}
 
         # training params
-        criterion = torch.nn.CrossEntropyLoss() if criterion is None else criterion
-        optimizer = torch.optim.SGD(self.model.parameters(), lr=1e-3) if optimizer is None else optimizer
+        criterion = torch.nn.CrossEntropyLoss() if criterion == 'auto' else criterion
+        optimizer = torch.optim.SGD(self.model.parameters(), lr=1e-3) if optimizer == 'auto' else optimizer
+        scaler = torch.amp.GradScaler() if scaler == 'auto' else scaler
         
         # resume training from the last checkpoint if resume is True
         last_epoch = 0
@@ -439,7 +540,7 @@ class ModuleCore():
             # training and validation
             self.train_stats['epoch'].append(epoch_i)
             for phase in ['train', 'valid']:
-                loss, acc, probs = self.__train(dataloaders[phase], phase, criterion, optimizer)
+                loss, acc, probs = self.__train(dataloaders[phase], phase, criterion, optimizer, scaler)
                 self.train_stats[f'{phase}_loss'].append(loss)
                 self.train_stats[f'{phase}_acc'].append(acc)
                 if loss is not None and acc is not None:
@@ -485,10 +586,10 @@ class ModuleCore():
         return last_epoch
 
 
-    def __train(self, dataloader, phase, criterion, optimizer):
+    def __train(self, dataloader, phase, criterion, optimizer, scaler):
         if dataloader is None:
             return None, None, None
-        if phase == 'trian':
+        if phase == 'train':
             self.model.train()
         else:
             self.model.eval()
@@ -498,19 +599,29 @@ class ModuleCore():
         probs = []
 
         for inputs, labels in dataloader:
-            inputs = inputs.to(self.device)
-            labels = labels.to(self.device)
+            inputs = inputs.to(self.device, non_blocking=True)
+            labels = labels.to(self.device, non_blocking=True)
 
             if phase == 'train':
-                optimizer.zero_grad()
+                optimizer.zero_grad(set_to_none=True)
+                
             with torch.set_grad_enabled(phase == 'train'):
-                outputs = self.model(inputs)
-                _, preds = torch.max(outputs, 1)
-                loss = criterion(outputs, labels)
-
-                if phase == 'train':
-                    loss.backward()
-                    optimizer.step()
+                if scaler is None:
+                    outputs = self.model(inputs)
+                    _, preds = torch.max(outputs, 1)
+                    loss = criterion(outputs, labels)
+                    if phase == 'train':
+                        loss.backward()
+                        optimizer.step()
+                else:
+                    with torch.amp.autocast(device_type=self.device, enabled=(self.device == 'cuda')):                
+                        outputs = self.model(inputs)
+                        _, preds = torch.max(outputs, 1)
+                        loss = criterion(outputs, labels)
+                    if phase == 'train':
+                        scaler.scale(loss).backward()
+                        scaler.step(optimizer)
+                        scaler.update()
 
             running_loss += loss * inputs.size(0)
             running_corrects += torch.sum(preds == labels.data)
@@ -557,6 +668,8 @@ class ModuleCore():
         
         torch.save(self.model.state_dict(), output)
         self.model = self.model.to(self.device)
+        
+        self.datalabel.save(os.path.splitext(output)[0] + '.dl.txt')
 
         output_log_fpath = os.path.splitext(output)[0] + '.train_stats.txt'
         self.__write_train_stats(output_log_fpath)
@@ -604,7 +717,7 @@ class ModuleCore():
         """
         self.model.eval()
         criterion = torch.nn.CrossEntropyLoss() if criterion is None else criterion
-        loss, acc, probs = self.__train(dataloader, 'test', criterion, None)
+        loss, acc, probs = self.__train(dataloader, 'test', criterion, None, None)
         self.test_stats = {
                     'dataset': dataloader.dataset,
                     'loss': loss,

@@ -1,4 +1,4 @@
-__version__ = '0.2.17.1110'
+__version__ = '0.2.18.0220'
 
 from ._base import imread, imconvert, imwrite, imshow, imlist, imresize
 from ._base import Annotation, Image, ImageDeck, JsonComplexEncoder
