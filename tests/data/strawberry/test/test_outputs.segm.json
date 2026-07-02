@@ -2,61 +2,61 @@
     "images": [
         {
             "id": 0,
-            "file_name": "data/strawberry/test/images/0de80884.jpg",
+            "file_name": "images/0de80884.jpg",
             "width": 1333,
             "height": 1000
         },
         {
             "id": 1,
-            "file_name": "data/strawberry/test/images/1f09197d.jpg",
+            "file_name": "images/1f09197d.jpg",
             "width": 1333,
             "height": 1000
         },
         {
             "id": 2,
-            "file_name": "data/strawberry/test/images/23119294.jpg",
+            "file_name": "images/23119294.jpg",
             "width": 750,
             "height": 1000
         },
         {
             "id": 3,
-            "file_name": "data/strawberry/test/images/7f7737de.jpg",
+            "file_name": "images/7f7737de.jpg",
             "width": 1333,
             "height": 1000
         },
         {
             "id": 4,
-            "file_name": "data/strawberry/test/images/90cc7f72.jpg",
+            "file_name": "images/90cc7f72.jpg",
             "width": 750,
             "height": 1000
         },
         {
             "id": 5,
-            "file_name": "data/strawberry/test/images/aba76d03.jpg",
+            "file_name": "images/aba76d03.jpg",
             "width": 1333,
             "height": 1000
         },
         {
             "id": 6,
-            "file_name": "data/strawberry/test/images/c18903aa.jpg",
+            "file_name": "images/c18903aa.jpg",
             "width": 1333,
             "height": 1000
         },
         {
             "id": 7,
-            "file_name": "data/strawberry/test/images/d20e16bc.jpg",
+            "file_name": "images/d20e16bc.jpg",
             "width": 1333,
             "height": 1000
         },
         {
             "id": 8,
-            "file_name": "data/strawberry/test/images/ea28b4a1.jpg",
+            "file_name": "images/ea28b4a1.jpg",
             "width": 1333,
             "height": 1000
         },
         {
             "id": 9,
-            "file_name": "data/strawberry/test/images/edadb687.jpg",
+            "file_name": "images/edadb687.jpg",
             "width": 1333,
             "height": 1000
         }
