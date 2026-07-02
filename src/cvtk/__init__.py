@@ -5,3 +5,4 @@ from . import io
 from . import data
 from . import ml
 from . import ls
+from . import viz
