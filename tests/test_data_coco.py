@@ -1,11 +1,14 @@
 import os
 import json
-import cvtk.format.coco as cvtkcoco
+import copy
+import cvtk
 import unittest
 import testutils
 
+PRINT_OUTPUT = False
 
-class TestBaseUtils(unittest.TestCase):
+
+class TestDataCoco(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.coco_files = [testutils.data['det']['train'],
@@ -15,9 +18,10 @@ class TestBaseUtils(unittest.TestCase):
         self.coco_dicts = [self.__load_coco(f) for f in self.coco_files]
         self.n_images = [len(coco['images']) for coco in self.coco_dicts]
         self.n_anns = [len(coco['annotations']) for coco in self.coco_dicts]
+        self.image_roots = [os.path.dirname(coco_file) for coco_file in self.coco_files]
 
-        self.ws = testutils.set_ws('coco_baseutils')
-
+        self.ws = testutils.set_ws('data_coco')
+    
     
     def __load_coco(self, coco_fpath):
         with open(coco_fpath, 'r') as fh:
@@ -31,6 +35,7 @@ class TestBaseUtils(unittest.TestCase):
         anns = [ann for ann in coco['annotations'] if ann['image_id'] == image_id]
         return [ann['bbox'] for ann in anns]
     
+    
     def __get_categories(self, coco, image_name='ff39545e.jpg'):
         if isinstance(coco, str):
             coco = self.__load_coco(coco)
@@ -39,11 +44,20 @@ class TestBaseUtils(unittest.TestCase):
         anns = [ann for ann in coco['annotations'] if ann['image_id'] == image_id]
         return [cateid2name[ann['category_id']] for ann in anns]
 
+
+    def __use_basename_file_names(self, coco):
+        coco = copy.deepcopy(coco)
+        for image in coco['images']:
+            image['file_name'] = os.path.basename(image['file_name'])
+        return coco
+
+
     def test_merge(self):
-        coco_merged_1 = cvtkcoco.combine(self.coco_files,
-                                 os.path.join(self.ws, 'merged_from_file.json'))
-        coco_merged_2 = cvtkcoco.combine(self.coco_dicts,
-                                 os.path.join(self.ws, 'merged_from_dict.json'))
+        coco_merged_1 = cvtk.data.coco.combine(self.coco_files,
+                                 output=os.path.join(self.ws, 'merged_from_file.json'))
+        coco_merged_2 = cvtk.data.coco.combine(self.coco_dicts,
+                                 output=os.path.join(self.ws, 'merged_from_dict.json'))
+        coco_merged_3 = cvtk.data.coco.combine(self.coco_files[0])
 
         self.assertEqual(self.__get_bboxes(self.coco_dicts[0]),
                          self.__get_bboxes(coco_merged_1))
@@ -51,17 +65,23 @@ class TestBaseUtils(unittest.TestCase):
                          self.__get_categories(coco_merged_1))
         
         self.assertEqual(coco_merged_1, coco_merged_2)
+        self.assertEqual(self.__get_bboxes(self.coco_dicts[0]),
+                         self.__get_bboxes(coco_merged_3))
+        self.assertEqual(self.__get_categories(self.coco_dicts[0]),
+                         self.__get_categories(coco_merged_3))
+        self.assertEqual(len(coco_merged_3['images']), len(self.coco_dicts[0]['images']))
+        self.assertEqual(len(coco_merged_3['annotations']), len(self.coco_dicts[0]['annotations']))
         
         self.assertEqual(len(coco_merged_1['images']), sum(self.n_images))
         self.assertEqual(len(coco_merged_1['annotations']), sum(self.n_anns))
 
 
     def test_split(self):
-        coco_split_1 = cvtkcoco.split(self.coco_files[0],
-                                os.path.join(self.ws, 'split_from_file.json'),
+        coco_split_1 = cvtk.data.coco.split(self.coco_files[0],
+                                output=os.path.join(self.ws, 'split_from_file.json'),
                                 random_seed=1)
-        coco_split_2 = cvtkcoco.split(self.coco_dicts[0],
-                                os.path.join(self.ws, 'split_from_dict.json'),
+        coco_split_2 = cvtk.data.coco.split(self.coco_dicts[0],
+                                output=os.path.join(self.ws, 'split_from_dict.json'),
                                 random_seed=1)
         
         self.assertEqual(self.__get_bboxes(self.coco_dicts[0]),
@@ -77,18 +97,37 @@ class TestBaseUtils(unittest.TestCase):
                          sum([len(coco['annotations']) for coco in coco_split_1]))
 
 
+    def test_image_root(self):
+        coco_with_basenames = self.__use_basename_file_names(self.coco_dicts[0])
+        combined = cvtk.data.coco.combine(coco_with_basenames, image_root=self.image_roots[0])
+        self.assertTrue(all(
+            image['file_name'] == os.path.join(self.image_roots[0], os.path.basename(src['file_name']))
+            for image, src in zip(combined['images'], self.coco_dicts[0]['images'])
+        ))
+
+        crop_data = {
+            'images': [copy.deepcopy(self.coco_dicts[0]['images'][0])],
+            'annotations': [copy.deepcopy(ann) for ann in self.coco_dicts[0]['annotations']
+                            if ann['image_id'] == self.coco_dicts[0]['images'][0]['id']],
+            'categories': copy.deepcopy(self.coco_dicts[0]['categories'])
+        }
+        crop_output = os.path.join(self.ws, 'crop_with_image_root')
+        cvtk.data.coco.crop(crop_data, output=crop_output, image_root=self.image_roots[0])
+        self.assertEqual(len(os.listdir(crop_output)), len(crop_data['annotations']))
+
+
     def test_reindex(self):
-        cvtkcoco.reindex(self.coco_files[0],
-                  os.path.join(self.ws,
-                               os.path.splitext(
-                                   os.path.basename(self.coco_files[0]))[0] + '.reindexed.json'))
+        cvtk.data.coco.reindex(self.coco_files[0],
+                  output=os.path.join(self.ws,
+                                      os.path.splitext(
+                                          os.path.basename(self.coco_files[0]))[0] + '.reindexed.json'))
 
     
     def test_remove(self):
-        cocodata = cvtkcoco.remove(self.coco_files[0],
-                        os.path.join(self.ws,
-                               os.path.splitext(
-                                   os.path.basename(self.coco_files[0]))[0] + '.removed.json'),
+        cocodata = cvtk.data.coco.remove(self.coco_files[0],
+                        output=os.path.join(self.ws,
+                                            os.path.splitext(
+                                                os.path.basename(self.coco_files[0]))[0] + '.removed.json'),
                         images=[1,
                                 'data/strawberry/train/images/2129c05b.jpg'],
                         categories='flower')
@@ -106,38 +145,52 @@ class TestBaseUtils(unittest.TestCase):
             coco_cates.append(_['name'])
         self.assertNotIn('flower', coco_cates)
 
+        coco_unchanged = cvtk.data.coco.remove(self.coco_files[0])
+        self.assertEqual(coco_unchanged, self.coco_dicts[0])
+
 
     def test_stats(self):
-        stats = cvtkcoco.stats(self.coco_files[2])
-        print(stats)
+        output_fpath = os.path.join(self.ws, 'stats.json')
+        stats = cvtk.data.coco.stats(self.coco_files[2], output=output_fpath)
+        self.assertEqual(stats['n_images'], len(self.coco_dicts[2]['images']))
+        self.assertEqual(stats['n_categories'], len(self.coco_dicts[2]['categories']))
+        self.assertIsInstance(stats['n_annotations'], dict)
+        self.assertEqual(sum(stats['n_annotations'].values()), len(self.coco_dicts[2]['annotations']))
 
-        stats = cvtkcoco.stats(self.coco_dicts[2])
-        print(stats)
+        with open(output_fpath, 'r') as fh:
+            self.assertEqual(json.load(fh), stats)
+
+        stats_from_dict = cvtk.data.coco.stats(self.coco_dicts[2])
+        self.assertEqual(stats_from_dict, stats)
 
 
     def test_calc_stats(self):
-        stats = cvtkcoco.calc_stats(self.coco_files[2], self.coco_test_result)
-        print(stats)
+        stats = cvtk.data.coco.calc_stats(self.coco_files[2], self.coco_test_result)
+        if PRINT_OUTPUT:
+            print(stats)
 
-        stats = cvtkcoco.calc_stats(self.coco_files[2], self.coco_test_result,
-                                    image_by='filename')
-        print(stats)
+        stats = cvtk.data.coco.calc_stats(self.coco_files[2], self.coco_test_result,
+                                    image_by='file_name')
+        if PRINT_OUTPUT:
+            print(stats)
 
 
-        stats = cvtkcoco.calc_stats(self.coco_files[2], self.coco_test_result,
-                                    image_by='filepath')
-        print(stats)
+        stats = cvtk.data.coco.calc_stats(self.coco_files[2], self.coco_test_result,
+                                    image_by='file_name')
+        if PRINT_OUTPUT:
+            print(stats)
 
-        stats = cvtkcoco.calc_stats(self.coco_files[2], self.coco_test_result,
+        stats = cvtk.data.coco.calc_stats(self.coco_files[2], self.coco_test_result,
                                     category_by='name')
-        print(stats)
+        if PRINT_OUTPUT:
+            print(stats)
 
-        stats = cvtkcoco.calc_stats(self.coco_dicts[2], self.coco_test_result)
+        stats = cvtk.data.coco.calc_stats(self.coco_dicts[2], self.coco_test_result)
 
 
 
 
-class TestScriptUtils(unittest.TestCase):
+class TestDataCocoScripts(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.ws = testutils.set_ws('coco_scriptutils')
@@ -182,16 +235,13 @@ class TestScriptUtils(unittest.TestCase):
         testutils.run_cmd(['cvtk', 'coco-remove',
                     '--input', testutils.data['det']['train'],
                     '--output', os.path.join(self.ws, 'strawberry.remove.json'),
-                    '--images', '1,data/strawberry/train/images/2129c05b.jpg',
                     '--categories', 'flower'])
-
 
 
     def test_coco_stats(self):
         testutils.run_cmd(['cvtk', 'coco-stats',
                     '--input', testutils.data['det']['train']])
     
-
 
 
 if __name__ == '__main__':
