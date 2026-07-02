@@ -1,56 +1,112 @@
+import math
 import os
 import copy
 import json
 import random
+from typing import Literal
+import numpy as np
 import PIL
 import PIL.Image
-from cvtk import JsonComplexEncoder
+import pycocotools
+import pycocotools.coco
+import pycocotools.cocoeval
+import cvtk.utils
 
 
-def __xywh2xyxy(bbox):
-    return [int(bbox[0]), int(bbox[1]), int(bbox[0] + bbox[2]), int(bbox[1] + bbox[3])]
+_METRICS_LABELS = ['AP@[0.50:0.95|all|100]',
+                   'AP@[0.50|all|1000]',
+                   'AP@[0.75|all|1000]',
+                   'AP@[0.50:0.95|small|1000]',
+                   'AP@[0.50:0.95|medium|1000]',
+                   'AP@[0.50:0.95|large|1000]',
+                   'AR@[0.50:0.95|all|100]',
+                   'AR@[0.50:0.95|all|300]',
+                   'AR@[0.50:0.95|all|1000]',
+                   'AR@[0.50:0.95|small|1000]',
+                   'AR@[0.50:0.95|medium|1000]',
+                   'AR@[0.50:0.95|large|1000]']
 
 
-def __xyxy2xywh(bbox):
-    return [int(bbox[0]), int(bbox[1]), int(bbox[2] - bbox[0]), int(bbox[3] - bbox[1])]
+def _load_coco(input, image_root=None):
+    def _get_path(file_name, image_root=None):
+        if image_root is None or file_name is None:
+            return file_name
+        return os.path.join(image_root, file_name)
+    
+    if isinstance(input, str):
+        with open(input, 'r') as f:
+            cocodata = json.load(f)
+    else:
+        cocodata = copy.deepcopy(input)
+
+    if image_root is not None:
+        for image in cocodata.get('images', []):
+            if 'file_name' in image:
+                image['file_name'] = _get_path(image['file_name'], image_root)
+
+    return cocodata
 
 
-def crop(input: str|list[str], output: str):
+def crop(
+    input: str|dict,
+    image_root: str|None=None,
+    output: str|None=None,
+) -> None:
     """Crop objects from images based on COCO annotations.
 
     The function crops objects from images based on COCO annotations.
     The cropped objects will be saved to the output directory.
 
     Args:
-        input: The COCO annotation file or list of COCO annotation files.
+        input: A file path or a COCO dict.
         output: The directory to save the cropped objects.
+        image_root: A root directory specifying the location of the images.
+            If None, image path stored in the COCO annotation file will be used directly. 
+    
+    Returns:
+        None
     """
-    if isinstance(input, str):
-        with open(input, 'r') as f:
-            data = json.load(f)
-    else:
-        data = copy.deepcopy(input)
-
+    if output is None:
+        raise ValueError('`output` must be specified to save the cropped objects.')
     if not os.path.exists(output):
         os.makedirs(output)
+    
+    cocodata = _load_coco(input, image_root=image_root)
 
-    for ann in data['annotations']:
-        im_path = [_ for _ in data['images'] if _['id'] == ann['image_id']][0]['file_name']
-        cate_name = [_ for _ in data['categories'] if _['id'] == ann['category_id']][0]['name']
-        bbox = tuple(__xywh2xyxy(ann['bbox']))
+    for ann in cocodata['annotations']:
+        im_path = None
+        for _ in cocodata['images']:
+            if _['id'] == ann['image_id']:               
+                im_path =_['file_name']
+                break
+            
+        if im_path is None:
+            raise ValueError(f'Image with ID {ann["image_id"]} not found in COCO annotation data.')
         
         im = PIL.Image.open(im_path)
-        im_crop = im.crop(bbox)
-        im_crop.save(os.path.join(output, '{}_{}_{}.{}'.format(
-            os.path.splitext(os.path.basename(im_path))[0],
-            cate_name,
-            '-'.join([str(int(i)) for i in bbox]),
-            os.path.splitext(im_path)[1])))
+        x1, y1, x2, y2 = cvtk.data.Bbox.xywh2xyxy(ann['bbox'])
+        x1 = max(0, math.floor(x1))
+        y1 = max(0, math.floor(y1))
+        x2 = min(math.ceil(x2), im.size[0])
+        y2 = min(math.ceil(y2), im.size[1])
         
+        im_crop = im.crop((x1, y1, x2, y2))
+        fname, fext = os.path.splitext(os.path.basename(im_path))
+        im_crop.save(
+            os.path.join(output, '{}_{}_{}{}'.format(
+                fname,
+                ann['category_id'],
+                '-'.join([str(int(i)) for i in (x1, y1, x2, y2)]),
+                fext)))
 
 
-
-def combine(input: str|list[str], output: str|None=None, ensure_ascii: bool=False, indent: int|None=4) -> dict:
+def combine(
+    input: str|dict|list[str]|list[dict]|tuple[str]|tuple[dict],
+    image_root: str|None=None,
+    output: str|None=None,
+    ensure_ascii: bool=False,
+    indent: int|None=4
+) -> dict:
     """Merge multiple COCO annotation files into one file.
 
     The function will merge the images, annotations, and categories
@@ -58,7 +114,9 @@ def combine(input: str|list[str], output: str|None=None, ensure_ascii: bool=Fals
     The IDs of the images, annotations, and categories will be re-indexed.
 
     Args:
-        inputs: List of file paths to COCO annotation files to be merged.
+        input: A file path, COCO dict, or a list of file paths or COCO dicts to be merged.
+        image_root: A root directory specifying the location of the images.
+            If None, image path stored in the COCO annotation file will be used directly.
         output: The merged COCO annotation data will be saved to the file if the file path is given.
         ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
         indent: If a non-negative integer is provided,
@@ -66,12 +124,7 @@ def combine(input: str|list[str], output: str|None=None, ensure_ascii: bool=Fals
 
     Returns:
         dict: Merged COCO annotation data.
-    
-    Examples:
-        >>> merged_coco = merge(['annotations1.json', 'annotations2.json', 'annotations3.json'],
-                                'merged_annotations.json')
     """
-
     merged_coco = {
         'images': [],
         'annotations': [],
@@ -82,32 +135,27 @@ def combine(input: str|list[str], output: str|None=None, ensure_ascii: bool=Fals
     category_id = 1
     annotation_id = 1
     
-    for input_file in input:
+    for input_file in cvtk.utils.as_list(input):
         image_idmap = {}
         category_idmap = {}
-
-        if isinstance(input_file, str):
-            with open(input_file, 'r') as f:
-                data = json.load(f)
-        else:
-            data = copy.deepcopy(input_file)
+        cocodata = _load_coco(input_file, image_root=image_root)
             
-        for category in data['categories']:
+        for category in cocodata['categories']:
             if category['name'] not in [c['name'] for c in merged_coco['categories']]:
                 category_idmap[category['id']] = category_id
                 category['id'] = category_id
-                merged_coco['categories'].append(category.copy())
+                merged_coco['categories'].append(category)
                 category_id += 1
             else:
                 category_idmap[category['id']] = [c['id'] for c in merged_coco['categories'] if c['name'] == category['name']][0]
             
-        for image in data['images']:
+        for image in cocodata['images']:
             image_idmap[image['id']] = image_id
             image['id'] = image_id
-            merged_coco['images'].append(image.copy())
+            merged_coco['images'].append(image)
             image_id += 1
             
-        for annotation in data['annotations']:
+        for annotation in cocodata['annotations']:
             annotation['id'] = annotation_id
             annotation['image_id'] = image_idmap[annotation['image_id']]
             annotation['category_id'] = category_idmap[annotation['category_id']]
@@ -115,21 +163,20 @@ def combine(input: str|list[str], output: str|None=None, ensure_ascii: bool=Fals
             annotation_id += 1
     
     if output is not None:
-        with open(output, 'w') as f:
-            json.dump(merged_coco, f, cls=JsonComplexEncoder, ensure_ascii=ensure_ascii, indent=indent)
-    
+        cvtk.utils.save_json(merged_coco, output, indent=indent, ensure_ascii=ensure_ascii)
     return merged_coco
 
 
-
-
-def split(input: str|dict,
-          output: str|None=None,
-          ratios: list[float]|tuple[float]=[0.8, 0.1, 0.1],
-          shuffle: bool=True,
-          reindex: bool=True,
-          random_seed: int|None=None,
-          ensure_ascii=False, indent=4) -> list[dict]:
+def split(
+    input: str|dict,
+    image_root: str|None=None,
+    ratios: list[float]|tuple[float]=[0.8, 0.1, 0.1],
+    shuffle: bool=True,
+    random_seed: int|None=None,
+    output: str|None=None,
+    ensure_ascii=False,
+    indent=4
+) -> list[dict]:
     """Split a COCO annotation file into several subsets
 
     The function splits the COCO annotation data into several subsets based on the given ratios.
@@ -137,27 +184,20 @@ def split(input: str|dict,
 
     Args:
         input: The COCO annotation data to be split.
-        output: The split COCO annotation data will be saved to the file if the file path.
-            The output file name will be appended with the index of the split subset.
+        image_root: A root directory specifying the location of the images.
+            If None, image path stored in the COCO annotation file will be used directly.
         ratios: Ratios of the train, validation, and test sets.
-        reindex: If True, the IDs of the images, categories, and annotations will be re-indexed.
         shuffle: If True, the images will be shuffled before splitting.
         random_seed: The random seed for shuffling the images.
+        output: The split COCO annotation data will be saved to the file if the file path.
+            The output file name will be appended with the index of the split subset.
         ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
         indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
-
-    Examples:
-        >>> subsets = split('annotations.json', [0.8, 0.1, 0.1])
-        >>> len(subsets)
-        3
-        >>> subsets[0]['images']
-        [{'id': 1, 'file_name': 'image1.jpg', 'height': 480, 'width': 640}, ...]
+        
+    Returns:
+        list[dict]: A list of COCO annotation data for each subset.
     """
-    if isinstance(input, str):
-        with open(input, 'r') as f:
-            cocodata = json.load(f)
-    else:
-        cocodata = copy.deepcopy(input)
+    cocodata = _load_coco(input, image_root=image_root)
     
     if abs(1.0 - sum(ratios)) > 1e-10:
         raise ValueError('The sum of `ratios` should be 1.')
@@ -185,41 +225,40 @@ def split(input: str|dict,
             'annotations': [ann for ann in cocodata['annotations'] if ann['image_id'] in [im['id'] for im in image_subsets[i]]],
             'categories': cocodata['categories']
         }
-        if reindex:
-            data_subset = globals()['reindex'](data_subset, output=None)
         data_subsets.append(data_subset)
     
-    if output:
+    if output is not None:
         for i in range(len(data_subsets)):
-            with open(f'{output}.{i}', 'w') as fh:
-                json.dump(data_subsets[i], fh, cls=JsonComplexEncoder, ensure_ascii=ensure_ascii, indent=indent)
+            cvtk.utils.save_json(data_subsets[i], f'{output}.{i}', indent=indent, ensure_ascii=ensure_ascii)
 
     return data_subsets
 
 
-
-
-def reindex(input: str|dict,
-            output: str|None=None,
-            image_id=True,
-            category_id=True,
-            ensure_ascii=False, indent=4) -> dict:
+def reindex(
+    input: str|dict,
+    image_root: str|None=None,
+    image_id=True,
+    category_id=True,
+    output: str|None=None,
+    ensure_ascii=False,
+    indent=4
+) -> dict:
     """Re-index the IDs of images, categories, and annotations in a COCO annotation file.
 
     Args:
         input: The COCO annotation data to be re-indexed.
-        output: The re-indexed COCO annotation data will be saved to the file if the file path is given.
+        image_root: A root directory specifying the location of the images.
+            If None, image path stored in the COCO annotation file will be used directly.
         image_id: If True, the image IDs will be re-indexed.
         category_id: If True, the category IDs will be re-indexed.
+        output: The re-indexed COCO annotation data will be saved to the file if the file path is given.
         ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
         indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
-    
+        
+    Returns:
+        dict: The re-indexed COCO annotation data.
     """
-    if isinstance(input, str):
-        with open(input, 'r') as f:
-            cocodata = json.load(f)
-    else:
-        cocodata = copy.deepcopy(input)
+    cocodata = _load_coco(input, image_root=image_root)
     
     if image_id:
         image_idmap = {}
@@ -238,15 +277,20 @@ def reindex(input: str|dict,
             ann['category_id'] = category_idmap[ann['category_id']]
 
     if output is not None:
-        with open(output, 'w') as f:
-            json.dump(cocodata, f, cls=JsonComplexEncoder, ensure_ascii=ensure_ascii, indent=indent)
-    
+        cvtk.utils.save_json(cocodata, output, indent=indent, ensure_ascii=ensure_ascii)
     return cocodata
 
 
-
-def remove(input: str|dict, output: str|None=None, images: list|None=None, categories: list|None=None, annotations: list|None=None,
-           ensure_ascii=False, indent=4) -> dict:
+def remove(
+    input: str|dict,
+    image_root: str|None=None,
+    images: list|None=None,
+    categories: list|None=None,
+    annotations: list|None=None,
+    output: str|None=None,
+    ensure_ascii=False,
+    indent=4
+) -> dict:
     """Remove specific items from COCO format data
 
     This function remove the specific images, categories, or annotations from COCO format data.
@@ -254,12 +298,17 @@ def remove(input: str|dict, output: str|None=None, images: list|None=None, categ
     
     Args:
         input: The COCO annotation data to be re-indexed.
+        image_root: A root directory specifying the location of the images.
+            If None, image path stored in the COCO annotation file will be used directly.
+        images: Remove images from COCO format data by image ID if the items of list is integer or by image name if the items of the list is string.
+        categories: Remove categories from COCO format data by category ID if the items of list is integer or by category name if the items of the list is string.
+        annotations: Remove annotations from COCO format data by annotation ID if the items of list is integer or by annotation name if the items of the list is string.
         output: The re-indexed COCO annotation data will be saved to the file if the file path is given.
-        images: Remove images from coco format data by image ID if the items of list is intenger or by image name if the items of the list is string.
-        categories: Remove images from coco format data by image ID if the items of list is intenger or by image name if the items of the list is string.
-        annotations: Remove images from coco format data by image ID if the items of list is intenger or by image name if the items of the list is string.
         ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
         indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
+        
+    Returns:
+        dict: The COCO annotation data after removing the specific items.
     """
     if isinstance(images, str) or isinstance(images, int):
         images = [images]
@@ -268,15 +317,12 @@ def remove(input: str|dict, output: str|None=None, images: list|None=None, categ
     if isinstance(annotations, str) or isinstance(annotations, int):
         annotations = [annotations]
     
-    if isinstance(input, str):
-        with open(input, 'r') as f:
-            cocodata = json.load(f)
-    else:
-        cocodata = copy.deepcopy(input)
+    cocodata = _load_coco(input, image_root=image_root)
 
     rm_images = []
-    cocodata_images = []
+    cocodata_images = copy.deepcopy(cocodata['images'])
     if (images is not None) and (len(images) > 0):
+        cocodata_images = []
         for im in cocodata['images']:
             if (im['id'] in images) or (im['file_name'] in images):
                 rm_images.append(im['id'])
@@ -284,8 +330,9 @@ def remove(input: str|dict, output: str|None=None, images: list|None=None, categ
                 cocodata_images.append(im)
     
     rm_cates = []
-    cocodata_cates = []
+    cocodata_cates = copy.deepcopy(cocodata['categories'])
     if (categories is not None) and (len(categories) > 0):
+        cocodata_cates = []
         for cate in cocodata['categories']:
             if (cate['id'] in categories) or (cate['name'] in categories):
                 rm_cates.append(cate['id'])
@@ -308,53 +355,74 @@ def remove(input: str|dict, output: str|None=None, images: list|None=None, categ
     cocodata['annotations'] = cocodata_anns
 
     if output is not None:
-        with open(output, 'w') as f:
-            json.dump(cocodata, f, cls=JsonComplexEncoder, ensure_ascii=ensure_ascii, indent=indent)
-    
+        cvtk.utils.save_json(cocodata, output, indent=indent, ensure_ascii=ensure_ascii)  
     return cocodata
 
 
-
-
-def stats(input: str|dict, output: str|None=None, ensure_ascii: bool=False, indent: int|None=4) -> dict:
+def stats(
+    input: str|dict,
+    image_root: str|None=None,
+    output: str|None=None,
+    ensure_ascii: bool=False,
+    indent: int|None=4
+) -> dict:
     """Calculate statistics of a COCO annotation file.
 
     Args:
         input: The COCO annotation data to be analyzed.
-        output: The statistics of the COCO annotation data will be saved to the file if the file path
+        image_root: A root directory specifying the location of the images.
+            If None, image path stored in the COCO annotation file will be used directly.
+        output: The statistics of the COCO annotation data will be saved to the file if the file path is provided.
         ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
         indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
 
     Returns:
         dict: A dictionary containing the statistics of the COCO annotation data.
-
-    Examples:
-        >>> stats = cocostats('annotations.json')
     """
-    if isinstance(input, str):
-        with open(input, 'r') as f:
-            cocodata = json.load(f)
-    else:
-        cocodata = input
+    cocodata = _load_coco(input, image_root=image_root)
 
     n_anns = {}
     for cate in cocodata['categories']:
         n_anns[str(cate['id'])] = 0
     for ann in cocodata['annotations']:
+        if str(ann['category_id']) not in n_anns:
+            raise ValueError(f'Annotation category_id {ann["category_id"]} not found in categories.')
         n_anns[str(ann['category_id'])] += 1
 
     stats = {
         'n_images': len(cocodata['images']),
         'n_categories': len(cocodata['categories']),
-        'n_annotations': [{cate['name']: n_anns[str(cate['id'])] for cate in cocodata['categories']}]
+        'n_annotations': {cate['name']: n_anns[str(cate['id'])] for cate in cocodata['categories']}
     }
 
+    if output is not None:
+        cvtk.utils.save_json(stats, output, indent=indent, ensure_ascii=ensure_ascii)
     return stats
 
 
+def __check_list_in_dict(d, k):
+    if not isinstance(d, dict):
+        raise ValueError(f'Expected a dictionary, but got {type(d)}.')
+    if k not in d:
+        raise ValueError(f'Key "{k}" not found in the dictionary.')
+    if d[k] is None:
+        raise ValueError(f'The value for key "{k}" is None.')
+    if not isinstance(d[k], list):
+        raise ValueError(f'Expected a list for key "{k}", but got {type(d[k])}.')
+    if len(d[k]) == 0:
+        raise ValueError(f'The list for key "{k}" is empty.')
 
-def calc_stats(gt: str|dict, pred: str|dict, image_by: str='id', category_by='id', iouType: str='bbox', metrics_labels=None) -> dict:
-    """Calculate prediction performance metrics for object detection and instance segmentation tasks
+
+def calc_stats(
+    gt: str|dict,
+    pred: str|dict,
+    image_root: str|None=None,
+    image_by: Literal['id', 'file_name']='id',
+    category_by: Literal['id', 'name']='id',
+    iouType: Literal['bbox', 'segm']='bbox',
+    metrics_labels=None
+) -> dict:
+    """Calculate detection/segmentation metrics from requested metric labels.
 
     The function calculates the prediction performance metrics for object detection and instance segmentation tasks,
     using the COCO evaluation API from pycocotools.
@@ -367,138 +435,216 @@ def calc_stats(gt: str|dict, pred: str|dict, image_by: str='id', category_by='id
     Args:
         gt (str|dict): Annotations of ground truth. It can be a path to a COCO annotation file or a dict object of COCO annotation.
         pred (str|dict): The predicted annotations. It can be a path to a COCO annotation file or a dict object of COCO annotation.
-        image_by (str): The attribute to map image ID between ground truth and prediction. Default is 'id'.
-        category_by (str): The attribute to map category ID between ground truth and prediction. Default is 'id'.
-        iouType (str): The type of IoU calculation. Default is 'bbox', but 'segm' is also available.
-        
+        image_root: A root directory specifying the location of the images.
+            If None, image path stored in the COCO annotation file will be used directly.
+        image_by (Literal['id', 'file_name']): The attribute to map image ID between ground truth and prediction. Default is 'id'.
+        category_by (Literal['id', 'name']): The attribute to map category ID between ground truth and prediction. Default is 'id'.
+        iouType (Literal['bbox', 'segm']): The type of IoU calculation. Default is 'bbox', but 'segm' is also available.
+        metrics_labels (list|tuple|None): The labels of metrics to be calculated. If None, all canonical COCO metric labels will be used.
+
     Returns:
         dict: A dictionary containing the prediction performance metrics.
-
-    Examples:
-        >>> calculate_map('ground_truth.json', 'predictions.json')
     """
-    try:
-        import pycocotools.coco
-        import pycocotools.cocoeval
-    except ImportError as e:
-        raise ImportError('Unable to import pycocotools module. '
-                          'Install pycocotools module to enable calculation of prediction performance.') from e
-
-    
+    if iouType not in ['bbox', 'segm']:
+        raise ValueError(f'Invalid iouType: {iouType}. Supported types are "bbox" and "segm".')    
     if metrics_labels is None:
-        metrics_labels = ['AP@[0.50:0.95|all|100]',
-                    'AP@[0.50|all|1000]',
-                    'AP@[0.75|all|1000]',
-                    'AP@[0.50:0.95|small|1000]',
-                    'AP@[0.50:0.95|medium|1000]',
-                    'AP@[0.50:0.95|large|1000]',
-                    'AR@[0.50:0.95|all|100]',
-                    'AR@[0.50:0.95|all|300]',
-                    'AR@[0.50:0.95|all|1000]',
-                    'AR@[0.50:0.95|small|1000]',
-                    'AR@[0.50:0.95|medium|1000]',
-                    'AR@[0.50:0.95|large|1000]']
-        
-    
-    def __calc_class_stats(coco_eval, coco_gt):
-        metrics = {}
-
-        iou_thresholds = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
-        area_ranges = ['all', 'small', 'medium', 'large']
-        max_detections = [1, 10, 100, 300, 1000]
-
-        for cat_id in coco_gt.getCatIds():
-            category_name = coco_gt.loadCats(cat_id)[0]['name']
-            metrics[category_name] = {}
-            
-            for i, metric_label in enumerate(metrics_labels):
-                metric_label_ = metric_label.replace('[', '').replace(']', '')
-                if '0.50:0.95' in metric_label_:
-                    iou_thr = slice(None)
-                else:
-                    iou_thr = iou_thresholds.index(float(metric_label_.split('@')[1].split('|')[0]))
-                area = area_ranges.index(metric_label_.split('|')[1])
-                max_det = max_detections.index(int(metric_label_.split('|')[2]))
-                if 'AP@' in metric_label_:
-                    v = coco_eval.eval['precision'][iou_thr, :, cat_id - 1, area, max_det].mean() 
-                elif 'AR@' in metric_label_:
-                    v = coco_eval.eval['recall'][iou_thr, cat_id - 1, area, max_det].mean()
-                metrics[category_name][metric_label] = v
-
-        return metrics
-
+        metrics_labels = list(_METRICS_LABELS)
+    elif isinstance(metrics_labels, (list, tuple)):
+        if len(metrics_labels) == 0:
+            raise ValueError('`metrics_labels` should not be empty.')
+        metrics_labels = list(metrics_labels)
+    else:
+        raise TypeError('`metrics_labels` should be list or tuple.')
+    metric_tags = __get_metric_tags(metrics_labels)
 
     # groundtruth
-    if isinstance(gt, str):
-        coco_gt = pycocotools.coco.COCO(gt)
-    else:
-        coco_gt = pycocotools.coco.COCO()
-        coco_gt.dataset = gt
-        coco_gt.createIndex()
+    coco_gt = pycocotools.coco.COCO()
+    coco_gt.dataset = _load_coco(gt, image_root=image_root)
+    coco_gt.createIndex()
 
-    # predcition
-    pred_anns = None
-    if isinstance(pred, str):
-        with open(pred, 'r') as f:
-            pred = json.load(f)
-    if isinstance(pred, dict): 
-        if 'annotations' in pred:
-            pred_anns = pred['annotations']
-        else:
-            pred_anns = pred
+    # prediction
+    coco_pred = _load_coco(pred, image_root=image_root)
+    __check_list_in_dict(coco_pred, 'annotations')
+    __check_list_in_dict(coco_pred, 'images')
+    __check_list_in_dict(coco_pred, 'categories')
 
-    # replace image ID
-    image_by = image_by.replace('_', '')
+    # replace image ID if gt and pred coco have different image ID
     if image_by == 'id':
+        # do nothing, since the default mapping is by image ID
         pass
-    elif image_by == 'filepath' or image_by == 'filename':
-        # ground truth image ID
-        im2id_gt = {}
-        for cocoimg in coco_gt.dataset['images']:
-            if image_by == 'filepath':
-                im2id_gt[cocoimg['file_name']] = cocoimg['id']
-            else:
-                im2id_gt[os.path.basename(cocoimg['file_name'])] = cocoimg['id']
-        # prediction image ID
-        id2im_pred = {}
-        for cocoimg in pred['images']:
-            if image_by == 'filepath':
-                id2im_pred[str(cocoimg['id'])] = cocoimg['file_name']
-            else:
-                id2im_pred[str(cocoimg['id'])] = os.path.basename(cocoimg['file_name'])        
+    elif image_by == 'file_name':
+        gt_f2id = {str(_['file_name']): _['id'] for _ in coco_gt.dataset['images']}
+        pred_id2f = {str(_['id']): _['file_name'] for _ in coco_pred['images']}        
         # replace image ID in annotations
-        for cocoann in pred_anns:
-            cocoann['image_id'] = im2id_gt[id2im_pred[str(cocoann['image_id'])]]
+        for i in range(len(coco_pred['annotations'])):
+            pred_image_id = str(coco_pred['annotations'][i]['image_id'])
+            if pred_image_id not in pred_id2f:
+                raise ValueError(f'The annotation {i} is associated with prediction image_id={pred_image_id}, but this image_id is not found in prediction images table.')
+            if pred_id2f[pred_image_id] not in gt_f2id:
+                raise ValueError(f'The annotation {i} is associated with prediction image_id={pred_image_id}, but the corresponding prediction image is not found in ground truth annotations.')
+            coco_pred['annotations'][i]['image_id'] = gt_f2id[pred_id2f[pred_image_id]]
     else:
-        raise ValueError('Unsupport mapping type.')
+        raise ValueError('Unsupported mapping type.')
 
     # replace category ID
-    if category_by == 'name':
-        cate2id_gt = {}
-        for cococate in coco_gt.dataset['categories']:
-            cate2id_gt[cococate['name']] = cococate['id']
-        id2cate_pred = {}
-        for cococate in pred['categories']:
-            id2cate_pred[str(cococate['id'])] = cococate['name']
-        for cocoann in pred_anns:
-            cocoann['category_id'] = cate2id_gt[id2cate_pred[str(cocoann['category_id'])]]
+    if category_by == 'id':
+        pass
+    elif category_by == 'name':
+        gt_cate2id = {_['name']: _['id'] for _ in coco_gt.dataset['categories']}
+        pred_id2cate = {str(_['id']): _['name'] for _ in coco_pred['categories']}
+        # replace category ID in annotations
+        for i in range(len(coco_pred['annotations'])):
+            pred_category_id = str(coco_pred['annotations'][i]['category_id'])
+            if pred_category_id not in pred_id2cate:
+                raise ValueError(f'Prediction category_id={pred_category_id} is not found in prediction categories table.')
+            if pred_id2cate[pred_category_id] not in gt_cate2id:
+                raise ValueError(f'Prediction category name "{pred_id2cate[pred_category_id]}" is not found in ground truth categories.')
+            coco_pred['annotations'][i]['category_id'] = gt_cate2id[pred_id2cate[pred_category_id]]
+    else:
+        raise ValueError(f'Unsupported category mapping type: {category_by}')
 
-    coco_pred = coco_gt.loadRes(pred_anns)
-    coco_eval = pycocotools.cocoeval.COCOeval(coco_gt, coco_pred, iouType)
-    coco_eval.params.maxDets = [1, 10, 100, 300, 1000]
+    if iouType == 'segm':
+        for i, ann in enumerate(coco_pred['annotations']):
+            __check_list_in_dict(ann, 'segmentation')
+            # avoid that pycocotools priorily loads bbox (may use bbox as segmentation coordinates)
+            ann.pop('bbox', None)
+    
+    coco_pred_anns = coco_gt.loadRes(coco_pred['annotations'])
+    coco_eval = pycocotools.cocoeval.COCOeval(coco_gt, coco_pred_anns, iouType=iouType)
+    coco_eval.params.maxDets = metric_tags['maxDets']
     coco_eval.evaluate()
     coco_eval.accumulate()
     coco_eval.summarize()
 
+    parsed_metrics = {}
+    for label in metrics_labels:
+        parsed_metrics[label] = __parse_metrics_label(label, coco_eval)
+
+    # overall stats
     stats_ = {}
-    for l_, s_ in zip(metrics_labels, coco_eval.stats):
-        stats_[l_] = s_
+    for label in metrics_labels:
+        stats_[label] = __compute_metric(coco_eval, parsed_metrics[label], class_idx=None)
 
-    stats_dict = {
+    # class stats
+    class_stats = {}
+    for cat_idx, cat_id in enumerate(list(coco_eval.params.catIds)):
+        category_name = coco_gt.loadCats(int(cat_id))[0]['name']
+        class_stats[category_name] = {}
+        for label in metrics_labels:
+            class_stats[category_name][label] = __compute_metric(coco_eval, parsed_metrics[label], class_idx=cat_idx)
+
+    return {
         'stats': stats_,
-        'class_stats': __calc_class_stats(coco_eval, coco_gt)
+        'class_stats': class_stats
     }
-
-    return stats_dict
     
+
+
+def __get_metric_tags(metric_labels):
+    # expected: ['AP@[0.50:0.95|all|1000] or AR@[0.75|medium|300]', ...]
+    metric_types = set()
+    iou_thrs = set()
+    objsizes = set()
+    maxdets = set()
+    
+    for metric_label in metric_labels:
+        if '@[' not in metric_label or not metric_label.endswith(']'):
+            raise ValueError(f'Invalid metric label format: {metric_label}')
+        metric_type, spec = metric_label.split('@[', 1)
+        metric_types.add(metric_type.strip())
+    
+        metric_parts = spec[:-1].split('|')
+        if len(metric_parts) != 3:
+            raise ValueError(f'Invalid metric label format: {metric_label}')
+        
+        iou_thrs.add(metric_parts[0].strip())
+        objsizes.add(metric_parts[1].strip())
+        maxdets.add(int(metric_parts[2].strip()))
+        
+    return {
+        'metricTypes': sorted(list(metric_types)),
+        'iouThrs': sorted(list(iou_thrs)),
+        'objSizes': sorted(list(objsizes)),
+        'maxDets': sorted(list(maxdets))
+    }
+ 
+
+def __parse_metrics_label(metric_label, coco_eval):
+    metric_type, spec = metric_label.split('@[', 1)
+    metric_type = metric_type.strip()
+
+    parts = spec[:-1].split('|')
+    iou_spec = parts[0].strip()
+    area_label = parts[1].strip()
+    max_det = int(parts[2].strip())
+    
+    iou_thrs = np.asarray(coco_eval.params.iouThrs, dtype=float)
+    area_labels = list(coco_eval.params.areaRngLbl)
+    max_dets = list(coco_eval.params.maxDets)
+    
+    if metric_type not in ['AP', 'AR']:
+        raise ValueError(f'Unsupported metric type: {metric_type}. Supported types are "AP" and "AR".')
+
+    if area_label not in area_labels:
+        raise ValueError(f'Area label "{area_label}" not found in evaluator area labels: {area_labels}')
+    area_idx = area_labels.index(area_label)
+
+    if max_det not in max_dets:
+        raise ValueError(f'Max detection {max_det} not found in evaluator max detections: {max_dets}')
+    max_det_idx = max_dets.index(max_det)
+    
+    if ':' in iou_spec:
+        range_parts = iou_spec.split(':', 1)
+        try:
+            iou_min = float(range_parts[0])
+            iou_max = float(range_parts[1])
+        except ValueError as e:
+            raise ValueError(f'Invalid IoU range in metric label: {metric_label}') from e
+
+        iou_idx = [i for i, thr in enumerate(iou_thrs)
+                   if (thr >= iou_min - 1e-9) and (thr <= iou_max + 1e-9)]
+        if len(iou_idx) == 0:
+            raise ValueError(f'No IoU thresholds found in range [{iou_min}, {iou_max}] for label: {metric_label}')
+    else:
+        try:
+            iou_val = float(iou_spec)
+        except ValueError as e:
+            raise ValueError(f'Invalid IoU value in metric label: {metric_label}') from e
+
+        iou_idx = [i for i, thr in enumerate(iou_thrs) if np.isclose(thr, iou_val, atol=1e-9)]
+        if len(iou_idx) == 0:
+            raise ValueError(f'IoU threshold {iou_val} not found in evaluator thresholds: {iou_thrs.tolist()}')
+
+    return {
+            'metric_type': metric_type,
+            'iou_idx': iou_idx,
+            'area_idx': area_idx,
+            'max_det_idx': max_det_idx
+        }
+    
+
+def __compute_metric(coco_eval, parsed_metric, class_idx=None):
+    metric_type = parsed_metric['metric_type']
+    iou_idx = parsed_metric['iou_idx']
+    area_idx = parsed_metric['area_idx']
+    max_det_idx = parsed_metric['max_det_idx']
+
+    if metric_type == 'AP':
+        precision = coco_eval.eval['precision']
+        if class_idx is None:
+            vals = precision[iou_idx, :, :, area_idx, max_det_idx]
+        else:
+            vals = precision[iou_idx, :, class_idx, area_idx, max_det_idx]
+    else:
+        recall = coco_eval.eval['recall']
+        if class_idx is None:
+            vals = recall[iou_idx, :, area_idx, max_det_idx]
+        else:
+            vals = recall[iou_idx, class_idx, area_idx, max_det_idx]
+
+    vals = np.asarray(vals)
+    vals = vals[vals > -1]
+    if vals.size == 0:
+        return float('nan')
+    return float(vals.mean())
 
