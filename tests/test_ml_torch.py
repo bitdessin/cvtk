@@ -1,27 +1,26 @@
 import os
-import unittest.util
-from cvtk import imlist
-from cvtk.ml import generate_source
-from cvtk.ml.data import DataLabel
-from cvtk.ml.torchutils import DataLabel, ModuleCore, DataLoader, Dataset, DataTransform, plot_trainlog, plot_cm
+import numpy as np
+import PIL.Image
 import unittest
 import testutils
+import cvtk
 
 
-class TestScript(unittest.TestCase):
+class TestTorchScript(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
     
 
-    def __run_proc(self, vanilla, code_generator):
+    def __run_proc(self, code_generator, vanilla):
         module = 'vanilla' if vanilla else 'cvtk'
-        dpath = testutils.set_ws(f'torch_torch__{module}_{code_generator}')
+        dpath = testutils.set_ws(f'torch_torch__{code_generator}_{module}')
         script = os.path.join(dpath, 'script.py')
         
-        if code_generator == 'source':
-            generate_source(script, task='cls', vanilla=vanilla)
-        elif code_generator == 'cmd':
-            cmd_ = ['cvtk', 'create', '--task', 'cls', '--script', script]
+        if code_generator == 'api':
+            cvtk.ml.deploy_model(script, backend='torch', task='cls', vanilla=vanilla)
+        
+        elif code_generator == 'script':
+            cmd_ = ['cvtk', 'deploy-model', '--backend', 'torch', '--task', 'cls', '--script', script]
             if vanilla:
                 cmd_.append('--vanilla')
             testutils.run_cmd(cmd_)
@@ -46,24 +45,24 @@ class TestScript(unittest.TestCase):
                     '--output', os.path.join(dpath, 'inference_results.txt')])
 
 
-    def test_cvtk_source(self):
-        self.__run_proc(False, 'source')
+    def test_cvtk_api(self):
+        self.__run_proc('api', False)
 
 
-    def test_torch_source(self):
-        self.__run_proc(True, 'source')
+    def test_torch_api(self):
+        self.__run_proc('api', True)
 
 
-    def test_cvtk_cmd(self):
-        self.__run_proc(False, 'cmd')
+    def test_cvtk_script(self):
+        self.__run_proc('script', False)
 
 
-    def test_torch_cmd(self):
-        self.__run_proc(True, 'cmd')    
+    def test_torch_script(self):
+        self.__run_proc('script', True)    
     
 
 
-class TestTorch(unittest.TestCase):
+class TestTorchUtils(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.ws = testutils.set_ws('torch_torchutils')
@@ -75,10 +74,34 @@ class TestTorch(unittest.TestCase):
         self.test = testutils.data['cls']['test']
 
 
+    def test_square_resize_accepts_ndarray(self):
+        image = np.zeros((20, 10, 3), dtype=np.uint8)
+        image[:, :, 1] = 255
+        resized = cvtk.ml.data.SquareResize(shape=32)(image)
+        self.assertIsInstance(resized, PIL.Image.Image)
+        self.assertEqual(resized.size, (32, 32))
+
+
+    def test_iterable_dataset_len(self):
+        datalabel = cvtk.ml.data.DataLabel(self.label)
+        dataset = cvtk.ml.torchutils.Dataset(datalabel,
+                                             self.train,
+                                             transform=cvtk.ml.torchutils.DataTransform(224, is_train=False),
+                                             stream_data=True)
+
+        with open(self.train, 'r') as fh:
+            expected = sum(1 for line in fh if line.rstrip().split('\t')[0:1] and line.rstrip().split('\t')[0] != '')
+
+        self.assertEqual(len(dataset), expected)
+
+
     def __inference(self, model, datalabel, data, output_fpath):
-        data = DataLoader(
-                Dataset(datalabel, data, transform=DataTransform(224, is_train=False)),
-                batch_size=2, num_workers=8)
+        data = cvtk.ml.torchutils.DataLoader(
+                cvtk.ml.torchutils.Dataset(datalabel,
+                                           data,
+                                           transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                batch_size=2,
+                num_workers=8)
         probs = model.inference(data)
         probs.to_csv(output_fpath,
                      sep = '\t', header=True, index=True, index_label='image')
@@ -88,37 +111,49 @@ class TestTorch(unittest.TestCase):
     def __test_torchutils(self, train, valid=None, test=None, output=None, batch_size=8, num_workers=8):
         temp_dpath = os.path.splitext(output)[0]
 
-        datalabel = DataLabel(self.label)
-        model = ModuleCore(datalabel, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
+        datalabel = cvtk.ml.data.DataLabel(self.label)
+        model = cvtk.ml.torchutils.ClsRunner(datalabel, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
 
-        train = DataLoader(
-                Dataset(datalabel, train, transform=DataTransform(224, is_train=True)),
-                batch_size=batch_size, num_workers=num_workers, shuffle=True)
+        train = cvtk.ml.torchutils.DataLoader(
+                cvtk.ml.torchutils.Dataset(datalabel,
+                                           train,
+                                           transform=cvtk.ml.torchutils.DataTransform(224, is_train=True)),
+                batch_size=batch_size,
+                num_workers=num_workers,
+                shuffle=True)
         if valid is not None:
-            valid = DataLoader(
-                        Dataset(datalabel, valid, transform=DataTransform(224, is_train=False)),
-                        batch_size=batch_size, num_workers=num_workers)
+            valid = cvtk.ml.torchutils.DataLoader(
+                        cvtk.ml.torchutils.Dataset(datalabel,
+                                                   valid,
+                                                   transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                        batch_size=batch_size,
+                        num_workers=num_workers)
         if test is not None:
-            test = DataLoader(
-                        Dataset(datalabel, test, transform=DataTransform(224, is_train=False)),
-                        batch_size=batch_size, num_workers=num_workers)
+            test = cvtk.ml.torchutils.DataLoader(
+                        cvtk.ml.torchutils.Dataset(datalabel,
+                                                   test,
+                                                   transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                        batch_size=batch_size,
+                        num_workers=num_workers)
 
         model.train(train, valid, test, epoch=3)
         print('resume ...')
         model.train(train, valid, test, epoch=10, resume=True)
         model.save(output)
 
-        plot_trainlog(os.path.splitext(output)[0] + '.train_stats.txt',
-                      os.path.splitext(output)[0] + '.train_stats.png')
+        cvtk.viz.plot(os.path.splitext(output)[0] + '.train_stats.txt',
+                      x='epoch',
+                      y=[['train_loss', 'valid_loss'], ['train_acc', 'valid_acc']],
+                      output=os.path.splitext(output)[0] + '.train_stats.png')
         if test is not None:
-            plot_cm(os.path.splitext(output)[0] + '.test_outputs.txt',
+            cvtk.viz.plot_cm(os.path.splitext(output)[0] + '.test_outputs.txt',
                     os.path.splitext(output)[0] + '.test_outputs.cm.png')
             
 
-        model = ModuleCore(datalabel, 'resnet18', output, temp_dpath)
-        self.__inference(model, datalabel, self.sample, os.path.splitext(output)[0] + '.inference_results.txt')
-        self.__inference(model, datalabel, imlist(self.sample), os.path.splitext(output)[0] + '.inference_results.txt')
-        self.__inference(model, datalabel, imlist(self.sample)[0], os.path.splitext(output)[0] + '.inference_results.txt')
+        model = cvtk.ml.torchutils.ClsRunner(datalabel, 'resnet18', output, temp_dpath)
+        self.__inference(model, datalabel, self.sample, os.path.splitext(output)[0] + '.inference_results_dir.txt')
+        self.__inference(model, datalabel, cvtk.io.imlist(self.sample), os.path.splitext(output)[0] + '.inference_results_list.txt')
+        self.__inference(model, datalabel, cvtk.io.imlist(self.sample)[0], os.path.splitext(output)[0] + '.inference_results_single.txt')
 
 
     def test_torchutils_t_f_f(self):
@@ -140,5 +175,4 @@ class TestTorch(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
 

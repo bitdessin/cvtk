@@ -1,52 +1,51 @@
 import os
 import random
-import math
 import gzip
-import importlib
+import contextlib
 import filetype
 import gc
 import numpy as np
 import pandas as pd
-import sklearn.metrics
-import plotly.graph_objects as go
-import plotly.express as px
-import plotly.subplots
 import PIL.Image
 import PIL.ImageFile
 import PIL.ImageOps
-import PIL.ImageFilter
+PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 import torch
 import torchvision
 import torchvision.transforms.v2
 from cvtk.ml.data import DataLabel
-from ._subutils import __get_imports, __insert_imports, __extend_cvtk_imports, __del_docstring
 
 
+def _resolve_image_path(img_path, image_base):
+    if img_path is None or img_path == '':
+        return img_path
+    if os.path.isabs(img_path):
+        return img_path
+    return os.path.join(image_base, img_path)
 
 
 class DataTransform():
-    """Pipeline for preprocessing images
+    """Image preprocessing pipeline for classification tasks.
 
-    The class composes several fundamental transforms for image preprocessing
-    and converts them to a `torchvision.transforms.Compose` instance.
-    It is intended for use by beginners.
-    If user wants to customize their own image preprocessing pipeline,
-    it is recommended to use `torchvision.transforms.Compose` directly.
+    Composes common image preprocessing transforms for classification using torchvision.
+    Provides separate pipelines for training (with augmentation) and inference (without augmentation).
+    Intended for users who want a quick preprocessing setup. For advanced customization,
+    use torchvision.transforms.Compose directly.
           
     Args:
-        shape: The resolution of preprocessed images.
-        is_train: Generate pipeline for trianing if True, otherwise for inference.
-            Pipeline for training includes random cropping, flipping, and rotation;
-            pipeline for inference only includes resizing and normalization.
+        shape (int|tuple[int,int]): Target image resolution. If int, creates square images.
+        is_train (bool): If True, creates training pipeline with augmentation (random crop, flip, rotation).
+            If False, creates inference pipeline (resize only). Default is False.
+
+    Attributes:
+        pipeline (torchvision.transforms.Compose): The composed transform pipeline.
 
     Examples:
         >>> from cvtk.ml.torchutils import DataTransform
-        >>> 
         >>> transform_train = DataTransform(224, is_train=True)
         >>> print(transform_train.pipeline)
-        >>>
         >>> transform_inference = DataTransform(224)
-        >>> print(transforms_inference.pipeline)
+        >>> print(transform_inference.pipeline)
     """
     def __init__(self, shape: int|tuple[int, int], is_train=False):
         if isinstance(shape, int):
@@ -74,12 +73,44 @@ class DataTransform():
 
 
 
-def Dataset(datalabel, dataset, transform, textiter=False, upsampling=False):
+def Dataset(datalabel, dataset, transform, stream_data=False, oversample=False, image_root=None):
+    """Create a dataset for image classification.
+    
+    Factory function that creates either a standard or iterable dataset based on arguments.
+    Automatically extracts pipeline from DataTransform objects and handles image loading
+    from directories, lists, tuples, or tab-separated files.
+    
+    Args:
+        datalabel (DataLabel|str|list|tuple): Class labels. Can be a DataLabel instance,
+            file path, or list/tuple of label names.
+        dataset (str|list|tuple): Image data source:
+            - File path: TSV file, image directory, or single image file
+            - List/tuple: Image paths with optional labels as nested lists/tuples
+        transform (DataTransform|torchvision.transforms.Compose|None): Image preprocessing pipeline.
+        stream_data (bool): If True, returns iterable dataset for memory-efficient streaming.
+            If False, returns standard dataset that loads all at once. Default is False.
+        oversample (bool): If True, oversample minority classes to balance dataset.
+            Only works with labeled data. Default is False.
+        image_root (str|None): Base directory for relative image paths in dataset.
+            If None, uses directory of dataset file (for TSV) or current directory. Default is None.
+    
+    Returns:
+        Dataset_|DatasetIterable_: A PyTorch dataset object ready for DataLoader.
+    
+    Examples:
+        >>> from cvtk.ml import DataLabel
+        >>> from cvtk.ml.torchutils import Dataset, DataTransform
+        >>> datalabel = DataLabel(['cat', 'dog'])
+        >>> transform = DataTransform(224, is_train=True)
+        >>> dataset = Dataset(datalabel, 'train.txt', transform)
+        >>> print(len(dataset))
+    """
     transform=transform.pipeline if isinstance(transform, DataTransform) else transform
-    if textiter:
-        return DatasetIterable_(datalabel, dataset, transform)
+    if stream_data:
+        return DatasetIterable_(datalabel, dataset, transform, image_root=image_root)
     else:
-        return Dataset_(datalabel, dataset, transform, upsampling=upsampling)
+        return Dataset_(datalabel, dataset, transform, oversample=oversample, image_root=image_root)
+
 
 
 class Dataset_(torch.utils.data.Dataset):
@@ -98,8 +129,8 @@ class Dataset_(torch.utils.data.Dataset):
     problems will arise in terms of accuracy, computational complexity, etc.
     It is best to have balanced data during the data collection phase.
     However, if it is difficult to obtain balanced data in some situations,
-    upsampling is used so that the samples in the minority class are equal in number to those in the major class.
-    In this class, upsampling is performed by specifying `upsampling=TRUE`.
+    oversampling is used so that the samples in the minority class are equal in number to those in the major class.
+    In this class, oversampling is performed by specifying `oversample=TRUE`.
     
     Args:
         datalabel: A DataLabel instance. This datalabel is used to convert class labels to integers.
@@ -126,14 +157,17 @@ class Dataset_(torch.utils.data.Dataset):
                  datalabel,
                  dataset: str|list|tuple,
                  transform: torchvision.transforms.Compose|DataTransform|None=None,
-                 upsampling: bool=False):
+                 oversample: bool=False,
+                 image_root: str|None=None):
         if transform is not None and isinstance(transform, DataTransform):
             transform = transform.pipeline            
         self.transform = transform
-        self.upsampling = upsampling
+        self.oversample = oversample
+        self.image_root = image_root
         self.x , self.y = self.__load_images(dataset, datalabel)
         if len(self.x) == 0:
             raise ValueError('No images are loaded. Check the dataset.')
+
 
     def __load_images(self, dataset, datalabel):
         x = []
@@ -147,18 +181,27 @@ class Dataset_(torch.utils.data.Dataset):
                     y = [None]
                 else:
                     # load a tab-separated file
+                    if self.image_root is None:
+                        image_base = os.path.dirname(os.path.abspath(dataset))
+                    else:
+                        image_base = os.path.abspath(self.image_root)
+                    
                     if dataset.endswith('.gz') or dataset.endswith('.gzip'):
                         trainfh = gzip.open(dataset, 'rt')
                     else:
                         trainfh = open(dataset, 'r')
                     x = []
                     y = []
-                    for line in trainfh:
-                        words = line.rstrip().split('\t')
-                        x.append(words[0])
+                    for data in trainfh:
+                        data = data.rstrip().split('\t')
+                        if len(data) == 0 or data[0] == '':
+                            continue
+                        
+                        x.append(_resolve_image_path(data[0], image_base))
                         # set label to None if the file does not contain the label column in the second column
-                        if len(words) >= 2:
-                            y.append(datalabel[words[1]])
+
+                        if len(data) >= 2 and data[1] != '':
+                            y.append(datalabel[data[1]])
                         else:
                             y.append(None)
                     trainfh.close()
@@ -169,11 +212,12 @@ class Dataset_(torch.utils.data.Dataset):
                         if filetype.is_image(os.path.join(root, f)):
                             x.append(os.path.join(root, f))
                             y.append(None)
+        
         elif isinstance(dataset, list) or isinstance(dataset, tuple):
             # load images from a list or tuple
             for d in dataset:
                 if isinstance(d, list) or isinstance(d, tuple):
-                    if len(d) >= 2:
+                    if len(d) >= 2 and d[1] is not None and d[1] != '':
                         x.append(d[0])
                         y.append(datalabel[d[1]])
                     else:
@@ -183,8 +227,8 @@ class Dataset_(torch.utils.data.Dataset):
                     x.append(d)
                     y.append(None)
 
-        if self.upsampling:
-            x, y = self.__unbiased_classes(x, y)
+        if self.oversample:
+            x, y = self.__unbiased_classes(x, y, datalabel)
 
         return x, y
 
@@ -204,10 +248,22 @@ class Dataset_(torch.utils.data.Dataset):
         return len(self.x)
 
 
-    def __unbiased_classes(self, x, y):
-        n_images = [[] for _ in range(len(self.datalabel))]
+    def __unbiased_classes(self, x, y, datalabel):
+        n_images = [[] for _ in range(len(datalabel))]
         for i in range(len(y)):
-            n_images[y[i]].append(i)
+            if y[i] is not None:
+                n_images[y[i]].append(i)
+            else:
+                raise ValueError('The label is None. Oversample is only available for training data with labels.')
+
+        # print errors when the input data does not allow oversampling
+        empty_classes = [i for i, n in enumerate(n_images) if len(n) == 0]
+        if len(empty_classes) > 0:
+            missing_labels = [datalabel.labels[i] for i in empty_classes]
+            raise ValueError(
+                'Oversample requires all classes to be present at least once. '
+                f'Missing classes: {missing_labels}'
+            )
 
         n_images_max = max([len(n) for n in n_images])
         for i in range(len(n_images)):
@@ -220,33 +276,54 @@ class Dataset_(torch.utils.data.Dataset):
 
 
 
-
-
 class DatasetIterable_(torch.utils.data.IterableDataset):
     def __init__(self,
                  datalabel,
                  dataset,
                  transform=None,
-                 shuffle=False):
+                 image_root=None):
         self.dataset = dataset
         self.datalabel = datalabel
         self.transform = transform
-        self.shuffle = shuffle
+        self.n = self._calc_n_samples()
         
-        self.n = self._calc_n_samples(self.dataset)
-        
+        if image_root is None:
+            self.image_root = os.path.dirname(os.path.abspath(dataset))
+        else:
+            self.image_root = os.path.abspath(image_root)
     
-    def _calc_n_samples(self, dataset):
-        openfile_ = gzip.open if self.dataset.endswith(('.gz', '.gzip')) else open
-        with openfile_(self.dataset, 'rt') as f:
-            return sum(1 for _ in f)
+    
+    def _valid_image_record(self, data):
+        data = data.rstrip()
         
+        if data == '':
+            return False
+        
+        data_records = data.split('\t')
+        if len(data_records) == 0 or data_records[0] == '':
+            return False
+        
+        return True
+    
     
     def _open_file(self):
         if self.dataset.endswith(('.gz', '.gzip')):
-            return gzip.open(self.dataset, 'rt')
+            fh = gzip.open(self.dataset, 'rt')
         else:
-            return open(self.dataset, 'r')
+            fh = open(self.dataset, 'r')
+        return fh
+    
+    
+    def _calc_n_samples(self):
+        fh = self._open_file()
+        n = 0
+        for line in fh:
+            if not self._valid_image_record(line):
+                continue
+            n += 1
+        fh.close()
+        return n
+    
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -257,24 +334,29 @@ class DatasetIterable_(torch.utils.data.IterableDataset):
         else:
             start = worker_info.id
             step = worker_info.num_workers
-        with self._open_file() as f:
-            for i, line in enumerate(f):
+        
+        with self._open_file() as fh:
+            for i, data in enumerate(fh):
                 if i % step != start:
                     continue
+                
+                if not self._valid_image_record(data):
+                    continue
+                
+                data_records = data.rstrip().split('\t')
 
-                words = line.rstrip().split('\t')
-                img_path = words[0]
-
-                if len(words) >= 2:
-                    label = self.datalabel[words[1]]
-                else:
-                    label = None
-
+                # image
+                img_path = _resolve_image_path(data_records[0], self.image_root)
                 img = PIL.Image.open(img_path).convert('RGB')
                 img = PIL.ImageOps.exif_transpose(img)
-
                 if self.transform is not None:
                     img = self.transform(img)
+
+                # label
+                if len(data_records) >= 2 and data_records[1] != '':
+                    label = self.datalabel[data_records[1]]
+                else:
+                    label = None
 
                 if label is None:
                     yield img
@@ -287,134 +369,202 @@ class DatasetIterable_(torch.utils.data.IterableDataset):
 
 
 
-
-
-
-
 class DataLoader(torch.utils.data.DataLoader):
-    """Create dataloader to manage data for training and inference
+    """DataLoader for managing image classification datasets.
 
-    This class simply creates a torch.utils.data.DataLoader instance to manage data for training and inference.
+    Wrapper around torch.utils.data.DataLoader with sensible defaults for image classification.
+    Supports batching, shuffling, and parallel data loading via worker processes.
 
     Args:
-        dataset (cvtk.ml.torchutils.DataSet): A dataset for training and inference.
-        batch_size (int): A batch size for training and inference.
-        num_workers (int): The number of workers for data loading.
-        shuffle (bool): If True, the data is shuffled at every epoch.
-
-    Returns:
-        A torch.utils.data.DataLoader instance.
+        dataset: A PyTorch dataset object (typically from Dataset factory function).
+        batch_size (int): Number of samples per batch. Default is 1.
+        shuffle (bool): If True, shuffle data at every epoch. Default is False.
+        num_workers (int): Number of worker processes for loading. Default is 0.
+        **kwargs: Additional arguments passed to torch.utils.data.DataLoader.
 
     Examples:
-        >>> from cvtk.ml
         >>> from cvtk.ml import DataLabel
         >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader
-        >>>
-        >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
+        >>> datalabel = DataLabel(['cat', 'dog', 'bird'])
         >>> transform = DataTransform(224, is_train=True)
         >>> dataset = Dataset(datalabel, 'train.txt', transform)
-        >>> dataloader = DataLoader(dataset, batch_size=32, num_workers=4)
-        >>> 
+        >>> dataloader = DataLoader(dataset, batch_size=32, num_workers=4, shuffle=True)
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
 
 
-class ModuleCore():
-    """A class provides training and inference functions for a classification model using PyTorch
+class BaseRunner():
+    """Base class for PyTorch model runners.
 
-    ModuleCore is a class that provides training and inference functions for a classification model.
-
-    Args:
-        datalabel (str|list|tuple|DataLabel): A DataLabel instance containing class labels.
-            If string (of file path), list, tuple is given, it is converted to a DataLabel instance.
-        model (str|torch.nn.Module): A string to specify a model or a torch.nn.Module instance.
-        weights (str): A file path to model weights.
-        workspace (str): A temporary directory path to save intermediate checkpoints and training logs.
-            If not given, the intermediate results are not saved.
-
-    Attributes:
-        device (str): A device to run the model. Default is 'cuda' if available, otherwise 'cpu'.
-        datalabel (DataLabel): A DataLabel instance containing class labels.
-        model (torch.nn.Module): A model of torch.nn.Module instance.
-        workspace (str): A temporary directory path.
-        train_stats (dict): A dictionary to save training statistics
-        test_stats (dict): A dictionary to save test statistics
-
-    Examples:
-        >>> import torch
-        >>> import torchvision
-        >>> from cvtk.ml.torchutils import ModuleCore
-        >>>
-        >>> datalabel = ['leaf', 'flower', 'root']
-        >>> m = ModuleCore(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
-        >>> 
-        >>> datalabel = 'class_label.txt'
-        >>> m = ModuleCore(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
+    Abstract base class providing common utilities for training and inference runners.
+    Handles device initialization, data label management, workspace setup, and checkpoint management.
+    Task-specific subclasses (e.g., ClsRunner) implement training, evaluation, and inference logic.
     """
-    def __init__(self, datalabel, model, weights=None, workspace=None):
-        self.task_type = 'cls'
-        if not(datalabel is None and model is None):
-            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            self.datalabel = self.__init_datalabel(datalabel)
-            self.model = self.__init_model(model, weights, len(self.datalabel.labels))
-            self.workspace = self.__init_tempdir(workspace)
-            self.model = self.model.to(self.device)
-            self.train_stats = None
-            self.test_stats = None
 
-    
+    def __init__(self, datalabel, workspace=None, device='auto'):
+        """Initialize the base runner.
+        
+        Args:
+            datalabel (DataLabel|str|list|tuple): Class labels. Can be a DataLabel instance,
+                file path, or list/tuple of label names.
+            workspace (str|None): Directory for saving checkpoints and logs.
+                If None, intermediate results are not persisted. Default is None.
+            device (str): Device to run model on ('auto', 'cuda', 'cpu').
+                'auto' automatically selects cuda if available. Default is 'auto'.
+        """
+        self.device = self._init_device(device)
+        self.datalabel = self._init_datalabel(datalabel)
+        self.workspace = self._init_tempdir(workspace)
+        self.train_stats = None
+        self.test_stats = None
+        self.model = None
+
     def __del__(self):
         try:
-            if hasattr(self, '__tempdir_obj') and (self.model is not None):
+            if hasattr(self, 'model') and self.model is not None:
                 del self.model
                 torch.cuda.empty_cache()
                 gc.collect()
         except:
             pass
 
-    
-    def __init_datalabel(self, datalabel):
-        if isinstance(datalabel, DataLabel):
-            pass
-        if isinstance(datalabel, str) or isinstance(datalabel, list) or isinstance(datalabel, tuple):
-            datalabel = DataLabel(datalabel)
-        elif not isinstance(datalabel, DataLabel):
-            raise TypeError('Invalid type: {}'.format(type(datalabel)))
-        return datalabel
+    def _init_device(self, device='auto'):
+        if device == 'auto':
+            return 'cuda' if torch.cuda.is_available() else 'cpu'
+        return device
 
+    def _init_datalabel(self, datalabel):
+        if isinstance(datalabel, DataLabel):
+            return datalabel
+
+        if isinstance(datalabel, str) or isinstance(datalabel, list) or isinstance(datalabel, tuple):
+            return DataLabel(datalabel)
+
+        raise TypeError('Invalid datalabel type: {}'.format(type(datalabel)))
+
+    def _init_tempdir(self, workspace):
+        if (workspace is not None) and (not os.path.exists(workspace)):
+            os.makedirs(workspace)
+        return workspace
+
+    def _resolve_torchvision_attr(self, attr_name):
+        obj = torchvision
+        for attr in attr_name.split('.'):
+            obj = getattr(obj, attr)
+        return obj
+
+    def _resolve_torchvision_model_attr(self, arch_name):
+        obj = torchvision.models
+        for attr in arch_name.split('.'):
+            obj = getattr(obj, attr)
+        return obj
+
+    def _load_state_dict(self, model, weights, strict=False):
+        state_dict = torch.load(weights, map_location='cpu')
+        model.load_state_dict(state_dict, strict=strict)
+        return model
+
+    def _checkpoint_datalabel_path(self, weights):
+        return os.path.splitext(weights)[0] + '.dl.txt'
+
+    def _str(self, s):
+        if s is None:
+            return 'NA'
+        return str(s)
+
+    def _ensure_output_dir(self, output):
+        outdir = os.path.dirname(output)
+        if outdir != '' and not os.path.exists(outdir):
+            os.makedirs(outdir)
+
+    def _save_datalabel(self, output):
+        self.datalabel.save(os.path.splitext(output)[0] + '.dl.txt')
+
+    def _move_model_to_cpu_for_save(self):
+        if self.model is not None:
+            self.model = self.model.to('cpu')
+
+    def _restore_model_to_device_after_save(self):
+        if self.model is not None:
+            self.model = self.model.to(self.device)
+
+
+
+
+
+
+class ClsRunner(BaseRunner):
+    """Classification model runner for training and inference with PyTorch.
+
+    High-level interface for image classification training, evaluation, and inference.
+    Supports model selection from torchvision, weight loading, mixed precision training,
+    and various output formats. Automatically handles checkpoint management and logging.
+
+    Args:
+        datalabel (str|list|tuple|DataLabel): Class labels. If string (file path), list, or tuple,
+            converted to DataLabel instance.
+        model (str|torch.nn.Module): Torchvision model name (e.g., 'efficientnet_b7') or
+            torch.nn.Module instance.
+        weights (str|None): Path to pretrained weights or torchvision weights enum
+            (e.g., 'EfficientNet_B7_Weights.DEFAULT'). Default is None.
+        workspace (str|None): Directory for saving checkpoints and logs.
+            If None, intermediate results not persisted. Default is None.
+        device (str): Device to run on ('auto', 'cuda', 'cpu'). Default is 'auto'.
+
+    Attributes:
+        device (str): Actual device used ('cuda' or 'cpu').
+        datalabel (DataLabel): Class label manager.
+        model (torch.nn.Module): The classification model.
+        workspace (str|None): Checkpoint/log directory.
+        train_stats (dict): Training statistics (epoch, loss, accuracy).
+        test_stats (dict): Test statistics (loss, accuracy, scores).
+
+    Examples:
+        >>> from cvtk.ml.torchutils import ClsRunner
+        >>> datalabel = ['cat', 'dog', 'bird']
+        >>> runner = ClsRunner(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
+    """
+    def __init__(self, datalabel, model, weights=None, workspace=None, device='auto'):
+        """Initialize classification runner.
+        
+        Args:
+            datalabel: Class labels (DataLabel, filepath, list, or tuple).
+            model: Torchvision model name or torch.nn.Module instance.
+            weights: Pretrained weights path or torchvision weights enum. Default is None.
+            workspace: Checkpoint/log directory. Default is None.
+            device: Device to use ('auto', 'cuda', 'cpu'). Default is 'auto'.
+        """
+        super().__init__(datalabel=datalabel, workspace=workspace, device=device)
+
+        self.task_type = 'cls'
+        self.model = self.__init_model(model, weights, len(self.datalabel.labels))
+        self.model = self.model.to(self.device)
+
+
+    def __build_amp_scaler(self):
+        if self.device != 'cuda':
+            return None
+        if hasattr(torch, 'amp') and hasattr(torch.amp, 'GradScaler'):
+            return torch.amp.GradScaler()
+        if hasattr(torch, 'cuda') and hasattr(torch.cuda, 'amp') and hasattr(torch.cuda.amp, 'GradScaler'):
+            return torch.cuda.amp.GradScaler()
+        return None
+
+
+    def __autocast_context(self):
+        if self.device != 'cuda':
+            return contextlib.nullcontext()
+        if hasattr(torch, 'amp') and hasattr(torch.amp, 'autocast'):
+            return torch.amp.autocast(device_type='cuda', enabled=True)
+        if hasattr(torch, 'cuda') and hasattr(torch.cuda, 'amp') and hasattr(torch.cuda.amp, 'autocast'):
+            return torch.cuda.amp.autocast(enabled=True)
+        return contextlib.nullcontext()
+    
 
     def __init_model(self, model, weights, n_classes):
-        # check mode type
-        if isinstance(model, str):
-            if weights is None:
-                module = eval(f'torchvision.models.{model}(weights=None)')
-            else:
-                if os.path.exists(weights):
-                    module = eval(f'torchvision.models.{model}(weights=None)')
-                elif weights == 'DEFAULT' or weights == 'IMAGENET1K_V1':
-                    module = eval(f'torchvision.models.{model}(weights="{weights}")')
-                else:
-                    module = eval(f'torchvision.models.{model}(weights=torchvision.models.{weights})')
         
-        elif isinstance(model, torchvision.models):
-            is_torch_model = False
-            for name in dir(torchvision.models):
-                obj = getattr(torchvision.models, name)
-                if isinstance(obj, type) and issubclass(obj, torch.nn.Module):
-                    if isinstance(model, obj):
-                        is_torch_model = True
-                        break
-            if is_torch_model:
-                module = model
-        
-        elif isinstance(model, torch.nn.Module):
-            module = model
-        
-        else:
-            raise ValueError('Invalid model type: {}'.format(type(model)))
-
 
         # fix the output layer
         def __set_output(module, n_classes):
@@ -442,6 +592,43 @@ class ModuleCore():
 
             return last_layer_name, last_layer
         
+        
+        module = None
+        
+        if isinstance(model, str):
+            try:
+                model_builder = self._resolve_torchvision_model_attr(model)
+            except AttributeError as exc:
+                raise ValueError(f'Unknown torchvision model: {model}') from exc
+            
+            if not callable(model_builder):
+                raise ValueError(f'Invalid torchvision model: {model}')
+
+            if weights is None:
+                module = model_builder(weights=None)
+            elif isinstance(weights, str):
+                if os.path.exists(weights):
+                    module = model_builder(weights=None) # setup weights later
+                else:
+                    try:
+                        resolved_weights = self._resolve_torchvision_model_attr(weights) #  e.g. EfficientNet_B7_Weights.DEFAULT
+                    except AttributeError as exc:
+                        raise ValueError(
+                            f'Unknown torchvision weights: {weights}. '
+                            f'Use a valid enum path like EfficientNet_B7_Weights.DEFAULT '
+                            f'or provide a local checkpoint path.'
+                        ) from exc
+                    module = model_builder(weights=resolved_weights)
+            else:
+                module = model_builder(weights=weights)
+
+        elif isinstance(model, torch.nn.Module):
+            module = model
+        
+        else:
+            raise ValueError('Invalid model type: {}. Use a torchvision model name or torch.nn.Module.'.format(type(model)))
+
+        
         # load weights
         # As the weights may have been pre-trained with different number of classes,
         # fix the output layer matching the number of classes during loading weights,
@@ -468,49 +655,36 @@ class ModuleCore():
     
 
 
-    def __init_tempdir(self, workspace):
-        if (workspace is not None) and (not os.path.exists(workspace)):
-            os.makedirs(workspace)
-        return workspace
-
-
 
     def train(self, train, valid=None, test=None, epoch=20, optimizer='auto', criterion='auto', scaler='auto', resume=False):
-        """Train the model with the provided dataloaders
+        """Train the model with provided dataloaders.
 
-        Train the model with the provided dataloaders. The training statistics are saved in the temporary directory.
+        Trains the model for specified epochs with optional validation and testing.
+        Training statistics are logged and saved to workspace if provided.
+        Supports mixed precision training (AMP) when available and resumable checkpointing.
 
         Args:
-            train (torch.utils.data.DataLoader): A dataloader for training.
-            valid (torch.utils.data.DataLoader): A dataloader for validation.
-            test (torch.utils.data.DataLoader): A dataloader for testing.
-            epoch (int): The number of epochs to train the model.
-            optimizer (torch.optim.Optimizer|None): An optimizer for training.
-                Default is `None` and `torch.optim.SGD` is used.
-            criterion (torch.nn.Module|None): A loss function for training.
-                Default is `None` and `torch.nn.CrossEntropyLoss` is used.
-            resume (bool): If True, the training resumes from the last checkpoint
-                which is saved in the temporary directory specified with ``temp_dirpath``.
+            train (torch.utils.data.DataLoader): DataLoader for training data.
+            valid (torch.utils.data.DataLoader|None): DataLoader for validation. Default is None.
+            test (torch.utils.data.DataLoader|None): DataLoader for testing at end of training. Default is None.
+            epoch (int): Number of epochs to train. Default is 20.
+            optimizer (torch.optim.Optimizer|str): Optimizer instance or 'auto' for SGD. Default is 'auto'.
+            criterion (torch.nn.Module|str): Loss function or 'auto' for CrossEntropyLoss. Default is 'auto'.
+            scaler (torch.amp.GradScaler|str|None): Gradient scaler for AMP or 'auto' for automatic selection. Default is 'auto'.
+            resume (bool): If True, resume from last checkpoint in workspace. Default is False.
+        
+        Returns:
+            None. Training stats saved to train_stats attribute and workspace if provided.
         
         Examples:
-            >>> import torch
             >>> from cvtk.ml import DataLabel
-            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ModuleCore
-            >>> 
+            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ClsRunner
             >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
-            >>> 
-            >>> model = ModuleCore(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
-            >>>
-            >>> # train dataset
-            >>> transforms_train = DataTransform(600, is_train=True)
-            >>> dataset_train = Dataset(datalabel, 'train.txt', transforms_train)
-            >>> dataloader_train = DataLoaders(dataset_train, batch_size=32, num_workers=4)
-            >>> # valid dataset
-            >>> transforms_valid = DataTransform(600, is_train=False)
-            >>> dataset_valid = Dataset(datalabel, 'valid.txt, transforms_valid)
-            >>> dataloader_valid = DataLoader(dataset_valid, batch_size=32, num_workers=4)
-            >>>
-            >>> model.train(dataloader_train, dataloader_valid, epoch=20)
+            >>> model = ClsRunner(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
+            >>> transform_train = DataTransform(600, is_train=True)
+            >>> dataset_train = Dataset(datalabel, 'train.txt', transform_train)
+            >>> dataloader_train = DataLoader(dataset_train, batch_size=32, num_workers=4)
+            >>> model.train(dataloader_train, epoch=20)
         """
 
         self.train_stats = {
@@ -526,7 +700,7 @@ class ModuleCore():
         # training params
         criterion = torch.nn.CrossEntropyLoss() if criterion == 'auto' else criterion
         optimizer = torch.optim.SGD(self.model.parameters(), lr=1e-3) if optimizer == 'auto' else optimizer
-        scaler = torch.amp.GradScaler() if scaler == 'auto' else scaler
+        scaler = self.__build_amp_scaler() if scaler == 'auto' else scaler
         
         # resume training from the last checkpoint if resume is True
         last_epoch = 0
@@ -570,23 +744,24 @@ class ModuleCore():
                 for f_line in fh:
                     vals = f_line.strip().split('\t')
                     for tag, val in zip(tags, vals):
-                        if val is not None:
-                            if val != 'NA' and val != 'None':
-                                if tag == 'epoch':
-                                    val = int(val)
-                                else:
-                                    val = float(val)
+                        if val in ('NA', 'None', ''):
+                            val = None
+                        else:
+                            if tag == 'epoch':
+                                val = int(val)
+                            else:
+                                val = float(val)
                         self.train_stats[tag].append(val)
             # update model weight with the last checkpoint
             self.model = self.model.to('cpu')
-            self.model.load_state_dict(torch.load(chk_fpath))
+            self._load_state_dict(self.model, chk_fpath, strict=True)
             self.model = self.model.to(self.device)
             last_epoch = max(self.train_stats['epoch'])
             
         return last_epoch
 
 
-    def __train(self, dataloader, phase, criterion, optimizer, scaler):
+    def __train(self, dataloader, phase, criterion, optimizer, scaler, score_type='softmax'):
         if dataloader is None:
             return None, None, None
         if phase == 'train':
@@ -596,7 +771,8 @@ class ModuleCore():
 
         running_loss = 0.0
         running_corrects = 0
-        probs = []
+        n_samples = 0
+        scores = []
 
         for inputs, labels in dataloader:
             inputs = inputs.to(self.device, non_blocking=True)
@@ -614,7 +790,12 @@ class ModuleCore():
                         loss.backward()
                         optimizer.step()
                 else:
-                    with torch.amp.autocast(device_type=self.device, enabled=(self.device == 'cuda')):                
+                    if self.device == 'cuda':
+                        with self.__autocast_context():
+                            outputs = self.model(inputs)
+                            _, preds = torch.max(outputs, 1)
+                            loss = criterion(outputs, labels)
+                    else:
                         outputs = self.model(inputs)
                         _, preds = torch.max(outputs, 1)
                         loss = criterion(outputs, labels)
@@ -623,53 +804,76 @@ class ModuleCore():
                         scaler.step(optimizer)
                         scaler.update()
 
-            running_loss += loss * inputs.size(0)
+            running_loss += loss.detach().item() * inputs.size(0)
             running_corrects += torch.sum(preds == labels.data)
-            probs.append(torch.nn.functional.softmax(outputs, dim=1).detach().cpu().numpy())
+            n_samples += inputs.size(0)
+            scores.append(self.__format_scores(outputs, score_type))
 
-        epoch_loss = running_loss.double().item() / len(dataloader.dataset)
-        epoch_acc = running_corrects.double().item() / len(dataloader.dataset)
-        probs = np.concatenate(probs, axis=0).tolist()
-        return epoch_loss, epoch_acc, probs
+        if n_samples == 0:
+            raise ValueError('No samples were processed from dataloader.')
+
+        epoch_loss = running_loss / n_samples
+        epoch_acc = running_corrects.double().item() / n_samples
+        scores = np.concatenate(scores, axis=0).tolist()
+        return epoch_loss, epoch_acc, scores
+
+
+    def __format_scores(self, scores, score_type):
+        if scores.ndim != 2:
+            raise ValueError('The score have shape of (batch_size, n_classes), but got {}'.format(scores.shape))
+
+        scores = scores.detach().float()
+        score_type = score_type.lower()
+        if score_type in ['logit', 'logits']:
+            pass        
+        elif score_type == 'softmax':
+            scores = torch.softmax(scores, dim=1)
+        elif score_type == 'sigmoid':
+            scores = torch.sigmoid(scores)
+        else:
+            raise ValueError(f"Unsupported score_type: {score_type}. Use 'logits', 'softmax', or 'sigmoid'.")
+
+        return scores.cpu().numpy()
 
 
 
     def save(self, output):
-        """Save model weights and training logs
+        """Save model weights, data labels, and training logs.
 
-        Save model weights in a file specified with the `output` argument.
-        The extension of the output file should be '.pth'; if not, '.pth' is appended to the output file path.
-        Additionally, if training logs and test outputs are present,
-        they are saved in text files with the same name as weights
-        but with '.train_stats.txt' and '.test_outputs.txt' extensions, respectively.
+        Saves the trained model weights and associated metadata. Creates output directory if needed.
+        Also saves training statistics and test outputs as separate files with same base name.
+        The model and datalabel are saved as a pair for later loading.
 
         Args:
-            output (str): A file path to save the model weights.
+            output (str): File path for model weights. Auto-appends '.pth' if missing.
+
+        Returns:
+            None. Files saved:
+                - {output}.pth: Model weights
+                - {output}.dl.txt: DataLabel (class names)
+                - {output}.train_stats.txt: Training statistics
+                - {output}.test_outputs.txt: Test outputs (if available)
 
         Examples:
-            >>> import torch
             >>> from cvtk.ml import DataLabel
-            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ModuleCore
-            >>> 
+            >>> from cvtk.ml.torchutils import ClsRunner
             >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
-            >>> model = ModuleCore(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
-            >>> 
-            >>> # training
-            >>> # ...
-            >>> model.save('output/plant_organ_classification.pth')
+            >>> model = ClsRunner(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
+            >>> # ... training ...
+            >>> model.save('output/plant_classifier.pth')
         """
         if not output.endswith('.pth'):
             output += '.pth'
-        if not os.path.exists(os.path.dirname(output)):
-            if os.path.dirname(output) != '':
-                os.makedirs(os.path.dirname(output))
 
-        self.model = self.model.to('cpu')
-        
+        self._ensure_output_dir(output)
+
+        self._move_model_to_cpu_for_save()
         torch.save(self.model.state_dict(), output)
-        self.model = self.model.to(self.device)
+        self._restore_model_to_device_after_save()
+
+        self._save_datalabel(output)
         
-        self.datalabel.save(os.path.splitext(output)[0] + '.dl.txt')
+        
 
         output_log_fpath = os.path.splitext(output)[0] + '.train_stats.txt'
         self.__write_train_stats(output_log_fpath)
@@ -683,13 +887,9 @@ class ModuleCore():
         with open(output_log_fpath, 'w') as fh:
             fh.write('\t'.join(self.train_stats.keys()) + '\n')
             for vals in zip(*self.train_stats.values()):
-                fh.write('\t'.join([self.__str(v) for v in vals]) + '\n')
+                fh.write('\t'.join([self._str(v) for v in vals]) + '\n')
 
 
-    def __str(self, s):
-        if s is None:
-            return 'NA'
-        return str(s)
     
 
     def __write_test_outputs(self, output_log_fpath):
@@ -697,63 +897,104 @@ class ModuleCore():
             fh.write('# loss: {}\n'.format(self.test_stats['loss']))
             fh.write('# acc: {}\n'.format(self.test_stats['acc']))
             fh.write('\t'.join(['image', 'label'] + self.datalabel.labels) + '\n')
-            for x_, y_, p_ in zip(self.test_stats['dataset'].x, self.test_stats['dataset'].y, self.test_stats['probs']):
+
+            dataset = self.test_stats.get('dataset')
+            scores = self.test_stats.get('scores', [])
+            images = getattr(dataset, 'x', None)
+            labels = getattr(dataset, 'y', None)
+            if not isinstance(images, (list, tuple)) or len(images) != len(scores):
+                images = [f'sample_{i:06d}' for i in range(len(scores))]
+            if not isinstance(labels, (list, tuple)) or len(labels) != len(scores):
+                labels = [None for _ in range(len(scores))]
+
+            for x_, y_, p_ in zip(images, labels, scores):
+                if isinstance(y_, (int, np.integer)) and 0 <= y_ < len(self.datalabel.labels):
+                    label_str = self.datalabel.labels[y_]
+                elif y_ is None:
+                    label_str = 'NA'
+                else:
+                    label_str = str(y_)
                 fh.write('{}\t{}\t{}\n'.format(
                     x_,
-                    self.datalabel.labels[y_],
+                    label_str,
                     '\t'.join([str(_) for _ in p_])))
                 
 
-    def test(self, dataloader, criterion=None):
-        """Test the model with the provided dataloader
+    def test(self, dataloader, criterion=None, score_type='softmax'):
+        """Evaluate model on test dataset.
         
-        Test the model with the provided dataloader.
-    
+        Runs model in evaluation mode on test data and computes loss, accuracy, and class scores.
+        Results are stored in test_stats for later access or saving.
+
         Args:
-            data (torch.utils.data.DataLoader): A dataloader for testing.
-            criterion (torch.nn.Module|None): A loss function for training.
-                Default is `None` and `torch.nn.CrossEntropyLoss` is used.
+            dataloader (torch.utils.data.DataLoader): DataLoader for test data.
+            criterion (torch.nn.Module|None): Loss function. Default is None (uses CrossEntropyLoss).
+            score_type (str): Score format: 'logits', 'softmax', or 'sigmoid'. Default is 'softmax'.
         
+        Returns:
+            dict: Test statistics containing:
+                - 'dataset': The dataset object
+                - 'loss': Average loss on test data
+                - 'acc': Accuracy on test data
+                - 'scores': Predicted scores/probabilities for each sample
+        
+        Examples:
+            >>> from cvtk.ml import DataLabel
+            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ClsRunner
+            >>> datalabel = DataLabel(['cat', 'dog', 'bird'])
+            >>> model = ClsRunner(datalabel, 'efficientnet_b7', 'model.pth')
+            >>> transform = DataTransform(224, is_train=False)
+            >>> dataset = Dataset(datalabel, 'test.txt', transform)
+            >>> dataloader = DataLoader(dataset, batch_size=32)
+            >>> stats = model.test(dataloader)
+            >>> print(f"Test accuracy: {stats['acc']:.4f}")
         """
         self.model.eval()
         criterion = torch.nn.CrossEntropyLoss() if criterion is None else criterion
-        loss, acc, probs = self.__train(dataloader, 'test', criterion, None, None)
+        loss, acc, scores = self.__train(dataloader, 'test', criterion, None, None, score_type)
         self.test_stats = {
                     'dataset': dataloader.dataset,
                     'loss': loss,
                     'acc': acc,
-                    'probs': probs
+                    'scores': scores
                 }
         return self.test_stats
 
 
-    def inference(self, data, format='pandas', batch_size=32, num_workers=8):
-        """Perform inference with the input images
+    def inference(self, data, format='pandas', batch_size=32, num_workers=8, score_type='softmax'):
+        """Perform inference on images with the trained model.
 
-        Perform inference with the input images with the trained model.
-        The format of ouput can be specified with `output` and `format` arguments.
+        Runs the model in evaluation mode on input images and returns predictions in requested format.
+        Handles various input types: DataLoader, image list, single image, or directory.
+        Automatically uses appropriate image size from training.
 
         Args:
-            dataloader (torch.utils.data.DataLoader): File path to an image or list of file paths, or a dataloader for inference.
-            format (str): A string to specify output format in Pandas Data.Frame ('pandas'), list ('list), or dictionary ('dict').
-            batch_size (int): A batch size for inference.
-            num_workers (int): The number of workers for data loading.
+            data (torch.utils.data.DataLoader|str|list): Input data:
+                - DataLoader: PyTorch DataLoader with test data
+                - str: File path to single image, TSV file, or directory of images
+                - list: List of image paths with optional labels
+            format (str): Output format: 'pandas' (DataFrame), 'list', 'dict', 'numpy', or 'np'. Default is 'pandas'.
+            batch_size (int): Batch size for inference. Default is 32.
+            num_workers (int): Number of workers for data loading. Default is 8.
+            score_type (str): Score format: 'logits', 'softmax', or 'sigmoid'. Default is 'softmax'.
+        
+        Returns:
+            Predictions in requested format:
+            - 'pandas': DataFrame with columns as class names, rows as images
+            - 'list': List of score lists, one per image
+            - 'dict': List of dicts with 'label' and 'score' keys per class
+            - 'numpy'/'np': numpy array of shape (n_samples, n_classes)
         
         Examples:
-            >>> import torch
             >>> from cvtk.ml import DataLabel
-            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ModuleCore
-            >>> 
-            >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
-            >>>
-            >>> model = ModuleCore(datalabel, 'efficientnet_b7', 'plant_organs.pth')
-            >>>
-            >>> transform = DataTransform(600)
-            >>> dataset = Dataset(datalabel, 'sample.jpg', transform)
-            >>> dataloader = DataLoader(dataset, batch_size=32, num_workers=4)
-            >>> 
-            >>> probs = model.inference(dataloader)
-            >>> probs.to_csv('inference_results.txt', sep = '\t', header=True, index=True, index_label='image')
+            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ClsRunner
+            >>> datalabel = DataLabel(['cat', 'dog', 'bird'])
+            >>> model = ClsRunner(datalabel, 'efficientnet_b7', 'model.pth')
+            >>> transform = DataTransform(224, is_train=False)
+            >>> dataset = Dataset(datalabel, 'test_images/', transform)
+            >>> dataloader = DataLoader(dataset, batch_size=32)
+            >>> probs = model.inference(dataloader, format='pandas')
+            >>> probs.to_csv('predictions.txt', sep='\\t')
         """
         self.model = self.model.to(self.device)
         self.model.eval()
@@ -765,185 +1006,57 @@ class ModuleCore():
                 Dataset(self.datalabel, data, transform=DataTransform(512, is_train=False)),
                 batch_size=batch_size, num_workers=num_workers)
 
-        probs = []
+        scores = []
         for inputs in dataloader:
             if not isinstance(inputs, torch.Tensor):
                 inputs = inputs[0]
             inputs = inputs.to(self.device)
             with torch.set_grad_enabled(False):
                 outputs = self.model(inputs)
-            probs.append(torch.nn.functional.softmax(outputs, dim=1).detach().cpu().numpy())
-        probs = np.concatenate(probs, axis=0)
-        labels = self.datalabel.labels #[probs.argmax(axis=1).tolist()]
-        
-        return self.__format_inference_output(probs, labels, dataloader.dataset.x, format)
+            
+            scores.append(self.__format_scores(outputs, score_type))
+        labels = self.datalabel.labels
+        if len(scores) == 0:
+            empty_scores = np.empty((0, len(labels)), dtype=float)
+            return self.__format_inference_output(empty_scores, labels, [], format)
+
+        scores = np.concatenate(scores, axis=0)
+        labels = self.datalabel.labels
+
+        dataset_obj = getattr(dataloader, 'dataset', None)
+        dataset_images = getattr(dataset_obj, 'x', None)
+
+        if isinstance(dataset_images, (list, tuple)) and len(dataset_images) == scores.shape[0]:
+            images = list(dataset_images)
+        else:
+            # fallback for generic PyTorch datasets that do not expose image paths.
+            images = [f'sample_{i:06d}' for i in range(scores.shape[0])]
+
+        return self.__format_inference_output(scores, labels, images, format)
 
 
 
-    def __format_inference_output(self, probs, labels, images, format):
+    def __format_inference_output(self, scores, labels, images, format):
         format = format.lower()
         
         if format in ['np', 'numpy', 'array']:
-            outputs = probs
+            outputs = scores
             
         elif format in ['list', 'tuple']:
             outputs = []
-            for i in range(probs.shape[0]):
-                outputs.append(probs[i].tolist())
+            for i in range(scores.shape[0]):
+                outputs.append(scores[i].tolist())
                 
-        if format == 'dict':
+        elif format == 'dict':
             outputs = []
-            for i in range(probs.shape[0]):
+            for i in range(scores.shape[0]):
                 output_ = []
-                for l_, p_ in zip(labels, probs[i].tolist()):
+                for l_, p_ in zip(labels, scores[i].tolist()):
                     output_.append({'label': l_, 'score': p_})
                 outputs.append(output_)
             
         else:
-            outputs = pd.DataFrame(probs, columns=labels, index=images)
+            outputs = pd.DataFrame(scores, columns=labels, index=images)
             
         return outputs
 
-        
-
-
-def plot_trainlog(train_log, output=None, title='Training Statistics', mode='lines', width=600, height=800, scale=1.0):
-    """Plot training log
-
-    Plot loss and accuracy at each epoch from the training log which
-    is expected to be saved in a tab-separated file with the following format:
-
-    ::
-
-        epoch  train_loss  train_acc  valid_loss  valid_acc
-        1      1.40679     0.22368    1.24780     0.41667
-        2      1.21213     0.48684    1.09401     0.83334
-        3      1.00425     0.81578    0.88967     0.83334
-        4      0.78659     0.82894    0.64055     0.91666
-        5      0.46396     0.96052    0.39010     0.91666
-
-    
-    Args:
-        train_log (str): A path to a tab-separated file containing training logs.
-        output (str): A file path to save the output images. If not provided, the plot is shown on display.
-        width (int): A width of the output image.
-        height (int): A height of the output image.
-        scale (float): The scale of the output image, which is used to adjust the resolution.
-    """
-    # data preparation
-    train_log = pd.read_csv(train_log, sep='\t', header=0, comment='#')
-    train_log = train_log.melt(id_vars='epoch', var_name='type', value_name='value')
-    train_log = train_log.assign(phase=train_log['type'].apply(lambda x: x.split('_')[0]))
-    train_log = train_log.assign(metric=train_log['type'].apply(lambda x: x.split('_')[1]))
-    
-    # plots
-    cols = px.colors.qualitative.Plotly
-    fig = plotly.subplots.make_subplots(rows=2, cols=1)
-
-    c = 0
-    for phase in train_log['phase'].unique():
-        d = train_log[(train_log['phase'] == phase) & (train_log['metric'] == 'loss')]
-        fig.add_trace(
-            go.Scatter(x=d['epoch'], y=d['value'], mode=mode, name=phase, line=dict(color=cols[c])),
-            row=1, col=1)
-        
-        d = train_log[(train_log['phase'] == phase) & (train_log['metric'] == 'acc')]
-        fig.add_trace(
-            go.Scatter(x=d['epoch'], y=d['value'], mode=mode, name=phase, line=dict(color=cols[c]), showlegend=False),
-            row=2, col=1)
-        
-        c = (c + 1) % len(cols)
-
-    fig.update_layout(title_text=title, template='ggplot2')
-    fig.update_xaxes(title_text='epoch')
-    fig.update_yaxes(title_text='loss', row=1, col=1)
-    fig.update_yaxes(title_text='acc', range=[-0.05, 1.05], row=2, col=1)
-
-    if output is not None:
-        fig.write_image(output, width=width, height=height, scale=scale)
-    else:
-        fig.show()
-    return fig
-
-
-def plot_cm(test_outputs, output=None, title='Confusion Matrix', xlab='Predicted Label', ylab='True Label', colorscale='YlOrRd', width=600, height=600, scale=1.0):
-    """Plot a confusion matrix from test outputs
-
-    Plot a confusion matrix from test outputs.
-    The test outputs are saved in a tab-separated file,
-    where the first column is the path to the image, the second column is the true label,
-    and the following columns are the predicted probabilities for each class.
-    The example of the test outputs is as follows:
-
-    ::
-
-        image  label   leaf     flower   root
-        1.JPG  leaf    0.54791  0.20376  0.24833
-        2.JPG  root    0.06158  0.02184  0.91658
-        3.JPG  leaf    0.70320  0.04808  0.24872
-        4.JPG  flower  0.04723  0.90061  0.05216
-        5.JPG  flower  0.30027  0.63067  0.06906
-        6.JPG  leaf    0.52753  0.43249  0.03998
-        7.JPG  root    0.21375  0.14829  0.63796
-    
-
-    Args:
-        test_outputs (str): A path to a tab-separated file containing test outputs.
-        output (str): A file path to save the output images. If not provided, the plot is shown on display.
-        width (int): A width of the output image.
-        height (int): A height of the output image.
-        scale (float): The scale of the output image, which is used to adjust the resolution.
-    """
-
-    # data preparation
-    test_outputs = pd.read_csv(test_outputs, sep='\t', header=0, comment='#')
-    class_labels = test_outputs.columns[2:]
-    y_true = test_outputs.iloc[:, 1].values.tolist()
-    y_pred = test_outputs.iloc[:, 2:].idxmax(axis=1).values.tolist()
-    
-    # statistics calculation
-    cm = sklearn.metrics.confusion_matrix(y_true, y_pred, labels=test_outputs.columns[2:])
-
-    fig = go.Figure(data=go.Heatmap(x=class_labels, y=class_labels, z=cm,
-                                    colorscale=colorscale, hoverongaps=False))
-    fig.update_layout(title=title, xaxis_title=xlab, yaxis_title=ylab,
-                      xaxis=dict(side='bottom'), yaxis=dict(side='left'))
-    fig.update_layout(template='ggplot2')
-
-
-    if output is not None:
-        fig.write_image(output, width=width, height=height, scale=scale)
-        cm = pd.DataFrame(cm, index=class_labels, columns=class_labels)
-        with open(os.path.splitext(output)[0] + '.txt', 'w') as oufh:
-            oufh.write('# Confusion Matrix\n')
-            oufh.write('#\tprediction\n')
-            cm.to_csv(oufh, sep='\t', header=True, index=True)
-    else:
-        fig.show()
-
-    return fig
-
-
-
-def __generate_source(script_fpath, vanilla=False):
-    if not script_fpath.endswith('.py'):
-        script_fpath += '.py'
-
-    tmpl = ''
-    with open(importlib.resources.files('cvtk').joinpath('tmpl/_torch.py'), 'r') as infh:
-        tmpl = infh.readlines()
-
-    if vanilla is True:
-        cvtk_modules = [
-            {'cvtk.ml.data': [DataLabel]},
-            {'cvtk.ml.torchutils': [DataTransform, Dataset, DataLoader, ModuleCore, plot_trainlog, plot_cm]}
-        ]
-        tmpl = __insert_imports(tmpl, __get_imports(__file__))
-        tmpl = __extend_cvtk_imports(tmpl, cvtk_modules)
-    
-    tmpl = ''.join(tmpl)
-    tmpl = tmpl.replace('__SCRIPTNAME__', os.path.basename(script_fpath))
-    tmpl = __del_docstring(tmpl)
-
-    with open(script_fpath, 'w') as fh:
-        fh.write(tmpl)

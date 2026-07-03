@@ -2,17 +2,17 @@ import argparse
 import pprint
 import cvtk
 import cvtk.ml
-import cvtk.format
-import cvtk.format.coco
+import cvtk.data
+import cvtk.data.coco
 import cvtk.ls
 
 
-def generate_task_source(args):
-    cvtk.ml.generate_source(args.script, task=args.task, vanilla=args.vanilla)
+def deploy_model(args):
+    cvtk.ml.deploy_model(args.script, backend=args.backend, task=args.task, vanilla=args.vanilla)
 
 
-def generate_demoapp(args):
-    cvtk.ml.generate_demoapp(args.project,
+def deploy_demoapp(args):
+    cvtk.ls.deploy_demoapp(args.project,
                              source=args.source,
                              label=args.label,
                              model=args.model,
@@ -36,7 +36,7 @@ def split(args):
 def coco_split(args):
     ratios = [float(r) for r in args.ratios.split(':')]
     ratios = [r / sum(ratios) for r in ratios]
-    cvtk.format.coco.split(input=args.input,
+    cvtk.data.coco.split(input=args.input,
                            output=args.output,
                            ratios=ratios,
                            shuffle=args.shuffle,
@@ -45,15 +45,15 @@ def coco_split(args):
 
 def coco_combine(args):
     inputs = args.input.split(',')
-    cvtk.format.coco.combine(inputs, output=args.output)
+    cvtk.data.coco.combine(inputs, output=args.output)
 
 
 def coco_stats(args):
-    pprint.pprint(cvtk.format.coco.stats(args.input))
+    pprint.pprint(cvtk.data.coco.stats(args.input))
 
 
 def coco_crop(args):
-    cvtk.format.coco.crop(args.input, output=args.output)
+    cvtk.data.coco.crop(args.input, output=args.output)
 
 
 def coco_remove(args):
@@ -68,11 +68,11 @@ def coco_remove(args):
         categories = args.categories.split(',')
         categories = [int(i) if i.isdigit() else i for i in categories]
 
-    cvtk.format.coco.remove(args.input,
-                            output=args.output,
-                            images=images,
-                            categories=categories,
-                            annotations=annotations)
+    cvtk.data.coco.remove(args.input,
+                           output=args.output,
+                           images=images,
+                           categories=categories,
+                           annotations=annotations)
 
 
 def ls_export(args):
@@ -97,76 +97,77 @@ def main():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
 
-    parser_train = subparsers.add_parser('create')
-    parser_train.add_argument('--script', type=str, required=True)
-    parser_train.add_argument('--task', type=str, choices=['cls', 'det', 'segm'], default='cls')
-    parser_train.add_argument('--vanilla', action='store_true', default=False)
-    parser_train.set_defaults(func=generate_task_source)
+    parser_model = subparsers.add_parser('deploy-model')
+    parser_model.add_argument('--script', type=str, required=True)
+    parser_model.add_argument('--backend', type=str, choices=['torch', 'mmdet'], default='torch')
+    parser_model.add_argument('--task', type=str, choices=['cls', 'det', 'segm'], default='cls')
+    parser_model.add_argument('--vanilla', action='store_true', default=False)
+    parser_model.set_defaults(func=deploy_model)
 
-    parser_train = subparsers.add_parser('app')
-    parser_train.add_argument('--project', type=str, required=True)
-    parser_train.add_argument('--source', type=str, required=True)
-    parser_train.add_argument('--label', type=str, required=True)
-    parser_train.add_argument('--model', type=str, default=True)
-    parser_train.add_argument('--weights', type=str, required=True)
-    parser_train.add_argument('--vanilla', action='store_true', default=False)
-    parser_train.set_defaults(func=generate_demoapp)
+    parser_demoapp = subparsers.add_parser('deploy-demoapp')
+    parser_demoapp.add_argument('--project', type=str, required=True)
+    parser_demoapp.add_argument('--source', type=str, required=True)
+    parser_demoapp.add_argument('--label', type=str, required=True)
+    parser_demoapp.add_argument('--model', type=str, required=True)
+    parser_demoapp.add_argument('--weights', type=str, required=True)
+    parser_demoapp.add_argument('--vanilla', action='store_true', default=False)
+    parser_demoapp.set_defaults(func=deploy_demoapp)
 
-    parser_split_text = subparsers.add_parser('text-split')
-    parser_split_text.add_argument('--input', type=str, required=True)
-    parser_split_text.add_argument('--output', type=str, required=True)
-    parser_split_text.add_argument('--ratios', type=str, default='8:1:1')
-    parser_split_text.add_argument('--shuffle', action='store_true')
-    parser_split_text.add_argument('--stratify', action='store_true')
-    parser_split_text.add_argument('--random_seed', type=int, default=None)
-    parser_split_text.set_defaults(func=split)
+    parser_text_split = subparsers.add_parser('text-split')
+    parser_text_split.add_argument('--input', type=str, required=True)
+    parser_text_split.add_argument('--output', type=str, required=True)
+    parser_text_split.add_argument('--ratios', type=str, default='8:1:1')
+    parser_text_split.add_argument('--shuffle', action='store_true')
+    parser_text_split.add_argument('--stratify', action='store_true')
+    parser_text_split.add_argument('--random_seed', type=int, default=None)
+    parser_text_split.set_defaults(func=split)
 
-    parser_split_text = subparsers.add_parser('coco-split')
-    parser_split_text.add_argument('--input', type=str, required=True)
-    parser_split_text.add_argument('--output', type=str, required=True)
-    parser_split_text.add_argument('--ratios', type=str, default='8:1:1')
-    parser_split_text.add_argument('--shuffle', action='store_true', default=False)
-    parser_split_text.add_argument('--random_seed', type=int, default=None)
-    parser_split_text.set_defaults(func=coco_split)
+    parser_coco_split = subparsers.add_parser('coco-split')
+    parser_coco_split.add_argument('--input', type=str, required=True)
+    parser_coco_split.add_argument('--output', type=str, required=True)
+    parser_coco_split.add_argument('--ratios', type=str, default='8:1:1')
+    parser_coco_split.add_argument('--shuffle', action='store_true', default=False)
+    parser_coco_split.add_argument('--random_seed', type=int, default=None)
+    parser_coco_split.set_defaults(func=coco_split)
 
-    parser_split_text = subparsers.add_parser('coco-combine')
-    parser_split_text.add_argument('--input', type=str, required=True)
-    parser_split_text.add_argument('--output', type=str, required=True)
-    parser_split_text.set_defaults(func=coco_combine)
+    parser_coco_combine = subparsers.add_parser('coco-combine')
+    parser_coco_combine.add_argument('--input', type=str, required=True)
+    parser_coco_combine.add_argument('--output', type=str, required=True)
+    parser_coco_combine.set_defaults(func=coco_combine)
 
-    parser_split_text = subparsers.add_parser('coco-stats')
-    parser_split_text.add_argument('--input', type=str, required=True)
-    parser_split_text.set_defaults(func=coco_stats)
+    parser_coco_stats = subparsers.add_parser('coco-stats')
+    parser_coco_stats.add_argument('--input', type=str, required=True)
+    parser_coco_stats.set_defaults(func=coco_stats)
 
-    parser_split_text = subparsers.add_parser('coco-crop')
-    parser_split_text.add_argument('--input', type=str, required=True)
-    parser_split_text.add_argument('--output', type=str, required=True)
-    parser_split_text.set_defaults(func=coco_crop)
+    parser_coco_crop = subparsers.add_parser('coco-crop')
+    parser_coco_crop.add_argument('--input', type=str, required=True)
+    parser_coco_crop.add_argument('--output', type=str, required=True)
+    parser_coco_crop.set_defaults(func=coco_crop)
 
-    parser_split_text = subparsers.add_parser('coco-remove')
-    parser_split_text.add_argument('--input', type=str, required=True)
-    parser_split_text.add_argument('--output', type=str, required=True)
-    parser_split_text.add_argument('--images', type=str, required=False)
-    parser_split_text.add_argument('--categories', type=str, required=False)
-    parser_split_text.add_argument('--annotations', type=str, required=False)
-    parser_split_text.set_defaults(func=coco_remove)
+    parser_coco_remove = subparsers.add_parser('coco-remove')
+    parser_coco_remove.add_argument('--input', type=str, required=True)
+    parser_coco_remove.add_argument('--output', type=str, required=True)
+    parser_coco_remove.add_argument('--images', type=str, required=False)
+    parser_coco_remove.add_argument('--categories', type=str, required=False)
+    parser_coco_remove.add_argument('--annotations', type=str, required=False)
+    parser_coco_remove.set_defaults(func=coco_remove)
 
-    parser_split_text = subparsers.add_parser('ls-export')
-    parser_split_text.add_argument('--project', type=str, required=True)
-    parser_split_text.add_argument('--output', type=str, required=True)
-    parser_split_text.add_argument('--format', type=str, required=False, default='coco')
-    parser_split_text.add_argument('--url', type=str, required=False, default=None)
-    parser_split_text.add_argument('--token', type=str, required=False, default=None)
-    parser_split_text.set_defaults(func=ls_export)
+    parser_ls_export = subparsers.add_parser('ls-export')
+    parser_ls_export.add_argument('--project', type=str, required=True)
+    parser_ls_export.add_argument('--output', type=str, required=True)
+    parser_ls_export.add_argument('--format', type=str, required=False, default='coco')
+    parser_ls_export.add_argument('--url', type=str, required=False, default=None)
+    parser_ls_export.add_argument('--token', type=str, required=False, default=None)
+    parser_ls_export.set_defaults(func=ls_export)
 
-    parser_train = subparsers.add_parser('ls-backend')
-    parser_train.add_argument('--project', type=str, required=True)
-    parser_train.add_argument('--source', type=str, required=True)
-    parser_train.add_argument('--label', type=str, required=True)
-    parser_train.add_argument('--model', type=str, default=True)
-    parser_train.add_argument('--weights', type=str, required=True)
-    parser_train.add_argument('--vanilla', action='store_true', default=False)
-    parser_train.set_defaults(func=ls_backend)
+    parser_ls_backend = subparsers.add_parser('ls-backend')
+    parser_ls_backend.add_argument('--project', type=str, required=True)
+    parser_ls_backend.add_argument('--source', type=str, required=True)
+    parser_ls_backend.add_argument('--label', type=str, required=True)
+    parser_ls_backend.add_argument('--model', type=str, default=True)
+    parser_ls_backend.add_argument('--weights', type=str, required=True)
+    parser_ls_backend.add_argument('--vanilla', action='store_true', default=False)
+    parser_ls_backend.set_defaults(func=ls_backend)
 
 
     args = parser.parse_args()

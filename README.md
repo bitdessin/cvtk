@@ -16,16 +16,3 @@ allowing them to quickly initiate and advance their projects in the field.
 - https://cvtk.readthedocs.io/en/latest/index.html
 
 
-
-## Citation
-
-The cvtk (Computer Vision Toolkit) package was forked from
-the [JustDeepIt](https://justdeepit.readthedocs.io/en/latest/index.html) package.
-If you are using cvtk in your work, please cite the following reference:
-
-Sun J, Cao W, Yamanaka T.
-JustDeepIt: Software tool with graphical and character user interfaces
-for deep learning-based object detection and segmentation in image analysis.
-Front. Plant Sci., 2022, 13:964058.
-doi: [10.3389/fpls.2022.964058](https://doi.org/10.3389/fpls.2022.964058)
-

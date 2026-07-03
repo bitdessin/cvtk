@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import plotly.subplots
@@ -6,40 +7,56 @@ import plotly.express as px
 import sklearn.metrics
 
 
-def plot(log_fpath, y, output=None, title='Plot', mode='lines', width=600, height=800, 
-         scale=1.0, rows=None, cols=None, x='epoch'):
-    """Generic plotting function to plot specified columns from a tab-separated file.
-
-    Plot specified columns from a tab-separated log file.
-    Supports grouping multiple columns in the same subplot using nested lists.
-
+def plot(
+    data,
+    x=None,
+    y=None,
+    output=None,
+    title=None,
+    mode='lines',
+    width=600,
+    height=800, 
+    scale=1.0,
+    rows=None,
+    cols=None
+) -> go.Figure:
+    """Plot specified columns from a tab-separated log file.
+    
+    Reads a tab-separated file and creates line plots using Plotly. Supports
+    multiple subplots where each subplot can contain one or more y columns.
+    
     Args:
-        log_fpath (str): Path to tab-separated log file.
-        y (list): List of column names to plot or nested lists for grouped subplots.
-            Examples:
+        data (str): Path to tab-separated log file.
+        x (str|None): Column name for x-axis. If None, defaults to 'epoch'. Default is None.
+        y (str|list): Column name(s) to plot on y-axis. Can be a single column name (str)
+            or a list of column names/nested lists for grouped subplots:
+                - 'loss': plots single column
                 - ['loss', 'acc']: plots loss and acc in separate subplots
                 - [['train_loss', 'valid_loss'], ['train_acc', 'valid_acc']]:
                   plots train_loss and valid_loss in subplot 1,
                   train_acc and valid_acc in subplot 2
-        output (str|None): Output file path to save the plot. If None, plot is displayed.
-        title (str): Title of the plot. Default is 'Plot'.
-        mode (str): Plot mode ('lines', 'markers', etc.). Default is 'lines'.
-        width (int): Width of the plot in pixels. Default is 600.
-        height (int): Height of the plot in pixels. Default is 800.
-        scale (float): Scale factor for the plot. Default is 1.0.
-        rows (int|None): Number of rows in subplot grid. If None, auto-generated for near square layout.
-        cols (int|None): Number of columns in subplot grid. If None, auto-generated for near square layout.
-        x (str): Column name for x-axis. Default is 'epoch'.
+        output (str|None): File path to save the plot. If None, displays plot interactively.
+        title (str|None): Plot title. Default is None.
+        mode (str): Plotly trace mode ('lines', 'markers', 'lines+markers', etc.). Default is 'lines'.
+        width (int): Plot width in pixels. Default is 600.
+        height (int): Plot height in pixels. Default is 800.
+        scale (float): Scale factor for saved image resolution. Default is 1.0.
+        rows (int|None): Number of rows in subplot grid. If None, auto-calculated for near-square layout.
+        cols (int|None): Number of columns in subplot grid. If None, auto-calculated for near-square layout.
 
     Returns:
         plotly.graph_objects.Figure: The plotly figure object.
 
+    Raises:
+        TypeError: If y items are not str or list/tuple.
+        ValueError: If specified column names are not found in the data file.
+
     Examples:
-        >>> from cvtk.utils import plot
+        >>> from cvtk.viz import plot
         >>> plot('train.log', y=['loss', 'acc'], output='plot.png')
-        >>> plot('train.log', y=[['train_loss', 'valid_loss'], ['train_acc', 'valid_acc']])
+        >>> plot('train.log', x='step', y=[['train_loss', 'valid_loss'], ['train_acc', 'valid_acc']])
     """
-    log_data = pd.read_csv(log_fpath, sep='\t', header=0, comment='#')
+    log_data = pd.read_csv(data, sep='\t', header=0, comment='#')
     
     # normalize y to nested list format
     if isinstance(y, str):
@@ -100,36 +117,57 @@ def plot(log_fpath, y, output=None, title='Plot', mode='lines', width=600, heigh
     return fig
 
 
-def plot_cm(test_outputs, output=None, title='Confusion Matrix', xlab='Predicted Label', ylab='True Label', colorscale='YlOrRd', width=600, height=600, scale=1.0):
-    """Plot a confusion matrix from test outputs
+def plot_cm(
+    data,
+    output=None,
+    title='Confusion Matrix',
+    xlab='Predicted Label',
+    ylab='True Label',
+    colorscale='YlOrRd',
+    width=600,
+    height=600,
+    scale=1.0
+) -> go.Figure:
+    """Plot a confusion matrix from classification test outputs.
 
-    Plot a confusion matrix from test outputs.
-    The test outputs are saved in a tab-separated file,
-    where the first column is the path to the image, the second column is the true label,
-    and the following columns are the predicted probabilities for each class.
-    The example of the test outputs is as follows:
+    Plots a confusion matrix as a heatmap using Plotly. Also saves a text file
+    containing the confusion matrix values if output path is provided.
+    
+    The input data should be a tab-separated file with columns:
+    - Column 1: image/sample path
+    - Column 2: true class label
+    - Columns 3+: predicted probabilities for each class
 
-    ::
+    Example input format::
 
         image  label   leaf     flower   root
         1.JPG  leaf    0.54791  0.20376  0.24833
         2.JPG  root    0.06158  0.02184  0.91658
         3.JPG  leaf    0.70320  0.04808  0.24872
         4.JPG  flower  0.04723  0.90061  0.05216
-        5.JPG  flower  0.30027  0.63067  0.06906
-        6.JPG  leaf    0.52753  0.43249  0.03998
-        7.JPG  root    0.21375  0.14829  0.63796
-    
 
     Args:
-        test_outputs (str): A path to a tab-separated file containing test outputs.
-        output (str): A file path to save the output images. If not provided, the plot is shown on display.
-        width (int): A width of the output image.
-        height (int): A height of the output image.
-        scale (float): The scale of the output image, which is used to adjust the resolution.
+        data (str): Path to tab-separated file containing test outputs.
+        output (str|None): File path to save the heatmap image. Also saves a `.txt` file
+            with the confusion matrix values. If None, displays plot interactively.
+        title (str): Plot title. Default is 'Confusion Matrix'.
+        xlab (str): X-axis label. Default is 'Predicted Label'.
+        ylab (str): Y-axis label. Default is 'True Label'.
+        colorscale (str): Plotly colorscale name (e.g., 'YlOrRd', 'Blues', 'Viridis').
+            Default is 'YlOrRd'.
+        width (int): Image width in pixels. Default is 600.
+        height (int): Image height in pixels. Default is 600.
+        scale (float): Scale factor for saved image resolution. Default is 1.0.
+
+    Returns:
+        plotly.graph_objects.Figure: The plotly figure object.
+
+    Examples:
+        >>> from cvtk.viz import plot_cm
+        >>> plot_cm('test_results.txt', output='confusion_matrix.png')
     """
     # data preparation
-    test_outputs = pd.read_csv(test_outputs, sep='\t', header=0, comment='#')
+    test_outputs = pd.read_csv(data, sep='\t', header=0, comment='#')
     class_labels = test_outputs.columns[2:]
     y_true = test_outputs.iloc[:, 1].values.tolist()
     y_pred = test_outputs.iloc[:, 2:].idxmax(axis=1).values.tolist()
@@ -143,9 +181,7 @@ def plot_cm(test_outputs, output=None, title='Confusion Matrix', xlab='Predicted
                       xaxis=dict(side='bottom'), yaxis=dict(side='left'))
     fig.update_layout(template='ggplot2')
 
-
     if output is not None:
-        import os
         fig.write_image(output, width=width, height=height, scale=scale)
         cm = pd.DataFrame(cm, index=class_labels, columns=class_labels)
         with open(os.path.splitext(output)[0] + '.txt', 'w') as oufh:
