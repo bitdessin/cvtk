@@ -13,8 +13,7 @@ PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 import torch
 import torchvision
 import torchvision.transforms.v2
-from cvtk.ml.data import DataLabel
-
+import cvtk
 
 def _resolve_image_path(img_path, image_base):
     if img_path is None or img_path == '':
@@ -81,12 +80,12 @@ def Dataset(datalabel, dataset, transform, stream_data=False, oversample=False, 
     from directories, lists, tuples, or tab-separated files.
     
     Args:
-        datalabel (DataLabel|str|list|tuple): Class labels. Can be a DataLabel instance,
+        datalabel (cvtk.ml.data.DataLabel|str|list|tuple): Class labels. Can be a DataLabel instance,
             file path, or list/tuple of label names.
         dataset (str|list|tuple): Image data source:
             - File path: TSV file, image directory, or single image file
             - List/tuple: Image paths with optional labels as nested lists/tuples
-        transform (DataTransform|torchvision.transforms.Compose|None): Image preprocessing pipeline.
+        transform (cvtk.ml.torchutils.DataTransform|torchvision.transforms.Compose|None): Image preprocessing pipeline.
         stream_data (bool): If True, returns iterable dataset for memory-efficient streaming.
             If False, returns standard dataset that loads all at once. Default is False.
         oversample (bool): If True, oversample minority classes to balance dataset.
@@ -436,11 +435,11 @@ class BaseRunner():
         return device
 
     def _init_datalabel(self, datalabel):
-        if isinstance(datalabel, DataLabel):
+        if isinstance(datalabel, cvtk.ml.data.DataLabel):
             return datalabel
 
         if isinstance(datalabel, str) or isinstance(datalabel, list) or isinstance(datalabel, tuple):
-            return DataLabel(datalabel)
+            return cvtk.ml.data.DataLabel(datalabel)
 
         raise TypeError('Invalid datalabel type: {}'.format(type(datalabel)))
 
@@ -638,7 +637,7 @@ class ClsRunner(BaseRunner):
             dl_path = os.path.splitext(weights)[0] + '.dl.txt'
 
             if os.path.exists(dl_path):
-                datalabel_loaded = DataLabel(dl_path)
+                datalabel_loaded = cvtk.ml.data.DataLabel(dl_path)
                 __set_output(module, len(datalabel_loaded))
                  
             state_dict = torch.load(weights, map_location='cpu')

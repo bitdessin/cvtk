@@ -1,16 +1,13 @@
+from __future__ import annotations
+
 import os
-import re
 import datetime
 import shutil
 import json
 import gc
-import random
 import pathlib
-import io
-import base64
-import copy
-
-from matplotlib.pylab import annotations
+import ast
+import warnings
 import filetype
 import logging
 import gzip
@@ -18,36 +15,17 @@ import tempfile
 import pickle
 import pandas as pd
 import numpy as np
-import importlib
 import PIL
-import PIL.Image
-import PIL.ImageOps
-import PIL.ImageDraw
-import PIL.ImageFont
-import skimage
-import skimage.measure
-import plotly.express as px
-import plotly.subplots
-import plotly.graph_objects as go
-import pycocotools
-import pycocotools.coco
-import pycocotools.mask
+import PIL.ImageFile
+PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 import torch
 import mim
 import mmdet
-import mmdet.utils
 import mmdet.apis
-import mmdet.models
-import mmdet.datasets
 import mmengine.config
-import mmengine.registry
 import mmengine.runner
 import mmdet.evaluation
-from cvtk import imread, Image, Annotation, ImageDeck, JsonComplexEncoder
-from cvtk.format.coco import calc_stats
-from cvtk.ml.data import DataLabel
-from ._subutils import __del_docstring, __get_imports, __insert_imports, __extend_cvtk_imports
-
+import cvtk
 
 logger = logging.getLogger(__name__)
 
@@ -69,36 +47,35 @@ class DataPipeline():
         if is_train:
             self.__cfg = [
                 dict(type='LoadImageFromFile',
-                    backend_args=None),
+                     backend_args=None),
                 dict(type='LoadAnnotations',
-                    with_bbox=with_bbox,
-                    with_mask=with_mask),
+                     with_bbox=with_bbox,
+                     with_mask=with_mask),
                 dict(type='Resize',
-                    scale=(1333, 800),
-                    keep_ratio=True),
+                     scale=(1333, 800),
+                     keep_ratio=True),
                 dict(type='RandomFlip',
-                    prob=0.5),
+                     prob=0.5),
                 dict(type='PackDetInputs')
             ]
         else:
             self.__cfg = [
                 dict(type='LoadImageFromFile',
-                    backend_args=None),
+                     backend_args=None),
                 dict(type='LoadAnnotations',
-                    with_bbox=with_bbox,
-                    with_mask=with_mask),
+                     with_bbox=with_bbox,
+                     with_mask=with_mask),
                 dict(type='Resize',
-                    scale=(1333, 800),
-                    keep_ratio=True),
+                     scale=(1333, 800),
+                     keep_ratio=True),
                 dict(
-                    type='PackDetInputs',
-                    meta_keys=('img_id',
+                     type='PackDetInputs',
+                     meta_keys=('img_id',
                             'img_path',
                             'ori_shape',
                             'img_shape',
                             'scale_factor'))
             ]
-
 
     @property
     def cfg(self):
@@ -119,9 +96,17 @@ class Dataset():
         pipeline: A DataPipeline class object.
         repeat_dataset: Whether to repeat the dataset. Default is False.
             Use the repeated dataset for training will be faster in some architecture.
-        
+        image_root: Base directory for resolving COCO image `file_name` paths.
+            If None, image paths are resolved relative to the COCO annotation file directory.
     """
-    def __init__(self, datalabel: DataLabel, dataset: str|list[str]|dict|None, pipeline: DataPipeline|None=None, repeat_dataset: bool=False):
+    def __init__(
+        self,
+        datalabel: cvtk.ml.data.DataLabel,
+        dataset: str|list[str]|dict|None,
+        pipeline: DataPipeline|None=None,
+        repeat_dataset: bool=False,
+        image_root: str|None=None,
+    ):
         self.__cfg = None
         if pipeline is None:
             pipeline = DataPipeline()
@@ -130,12 +115,17 @@ class Dataset():
             self.__cfg = None
         elif isinstance(dataset, str) and dataset.endswith('.json'):
             self.__check_coco_format(datalabel, dataset)
+            ann_file = os.path.abspath(dataset)
+            if image_root is None:
+                data_root = os.path.dirname(ann_file)
+            else:
+                data_root = os.path.abspath(image_root)
             self.__cfg = dict(
                 metainfo=dict(classes=datalabel.labels),
                 type='CocoDataset',
-                data_root='',
+                data_root=data_root,
                 data_prefix=dict(img=''),
-                ann_file=os.path.abspath(dataset),
+                ann_file=ann_file,
                 pipeline=pipeline.cfg,
                 filter_cfg=dict(filter_empty_gt=True, min_size=0),
             )
@@ -180,8 +170,8 @@ class Dataset():
             raise ValueError(f'Invalid COCO format: {ann_fpath}. No "annotations" field.')
         if 'categories' not in cocodict:
             raise ValueError(f'Invalid COCO format: {ann_fpath}. No "categories" field.')
-        if 'info' in cocodict:
-            Warning(f'COCO format file without "info" field may cause processing errors in some versions of MMDetection. It is recommended to add an "info" field into the file: {ann_fpath}.')
+        if 'info' not in cocodict:
+            warnings.warn(f'COCO format file without "info" field may cause processing errors in some versions of MMDetection. It is recommended to add an "info" field into the file: {ann_fpath}.')
 
         # check file contains data
         if (len(cocodict['images']) == 0):
@@ -218,18 +208,21 @@ class DataLoader():
         self.__cfg = None
 
         if dataset is None:
-            dataset = Dataset(DataLabel([]), None)
+            dataset = Dataset(cvtk.ml.data.DataLabel([]), None)
+
+        dataset_cfg = dataset.cfg
+        base_dataset_cfg = self.__unwrap_dataset_cfg(dataset_cfg)
 
         metrics = ['bbox']
-        if dataset.cfg is not None:
-            if 'pipeline' in dataset.cfg:
-                for pp in dataset.cfg['pipeline']:
+        if base_dataset_cfg is not None:
+            if 'pipeline' in base_dataset_cfg:
+                for pp in base_dataset_cfg['pipeline']:
                     if pp['type'] == 'LoadAnnotations':
                         if 'with_mask' in pp and pp['with_mask']:
                             metrics.append('segm')
         
         if phase == 'train':
-            if dataset.cfg is None:
+            if dataset_cfg is None:
                 raise ValueError('The dataset configuration is required for training, but got None.')
             else:
                 self.__cfg = dict(
@@ -237,7 +230,7 @@ class DataLoader():
                     train_dataloader=dict(
                         batch_size=batch_size,
                         num_workers=num_workers,
-                        dataset=dataset.cfg,
+                        dataset=dataset_cfg,
                     ),
                     train_cfg = dict(
                         type='EpochBasedTrainLoop',
@@ -246,18 +239,20 @@ class DataLoader():
                     ),
                 )
         elif phase == 'valid':
-            if dataset.cfg is None:
+            if dataset_cfg is None:
                 self.__cfg = dict(
                         val_dataloader=None,
                         val_cfg=None,
                         val_evaluator=None)
             else:
+                if base_dataset_cfg is None or ('ann_file' not in base_dataset_cfg):
+                    raise ValueError('Validation requires COCO annotation dataset with ann_file.')
                 self.__cfg = dict(
                         val_dataloader=dict(
                             _delete_=True,
                             batch_size=batch_size,
                             num_workers=num_workers,
-                            dataset=dataset.cfg,
+                            dataset=dataset_cfg,
                             drop_last=False,
                             sampler=dict(type='DefaultSampler', shuffle=False)
                         ),
@@ -267,24 +262,26 @@ class DataLoader():
                         val_evaluator = dict(
                             _delete_=True,
                             type='CocoMetric',
-                            ann_file=dataset.cfg['ann_file'],
+                            ann_file=base_dataset_cfg['ann_file'],
                             metric=metrics,
                             backend_args=None
                         )
                     )
         elif phase == 'test':
-            if dataset.cfg is None:
+            if dataset_cfg is None:
                 self.__cfg = dict(
                         test_dataloader=None,
                         test_cfg=None,
                         test_evaluator=None)
             else:
+                if base_dataset_cfg is None or ('ann_file' not in base_dataset_cfg):
+                    raise ValueError('Testing requires COCO annotation dataset with ann_file.')
                 self.__cfg = dict(
                         test_dataloader=dict(
                             _delete_=True,
                             batch_size=batch_size,
                             num_workers=num_workers,
-                            dataset=dataset.cfg,
+                            dataset=dataset_cfg,
                             drop_last=False,
                             sampler=dict(type='DefaultSampler', shuffle=False)
                         ),
@@ -294,7 +291,7 @@ class DataLoader():
                         test_evaluator = dict(
                             _delete_=True,
                             type='CocoMetric',
-                            ann_file=dataset.cfg['ann_file'],
+                            ann_file=base_dataset_cfg['ann_file'],
                             metric=metrics,
                             backend_args=None
                         )
@@ -306,32 +303,44 @@ class DataLoader():
                         num_workers=num_workers,
                         drop_last=False,
                         sampler=dict(type='DefaultSampler', shuffle=False),
-                        dataset=dataset.cfg))
+                        dataset=dataset_cfg))
+
+
+    def __unwrap_dataset_cfg(self, dataset_cfg):
+        while (
+            isinstance(dataset_cfg, dict)
+            and ('dataset' in dataset_cfg)
+            and isinstance(dataset_cfg['dataset'], dict)
+        ):
+            dataset_cfg = dataset_cfg['dataset']
+        return dataset_cfg
+
+
 
     @property
     def cfg(self):
         return self.__cfg        
 
 
-class ModuleCore():
+class DetRunner():
     """A class for object detection and instance segmentation
 
     This class provides user-friendly APIs for object detection and instance segmentation
     using MMDetection.
     There are four main methods are implemented in this class:
-    :func:`train <cvtk.ml.mmdetutils.ModuleCore.train>`,
-    :func:`test <cvtk.ml.mmdetutils.ModuleCore.test>`,
-    :func:`save <cvtk.ml.mmdetutils.ModuleCore.save>`,
-    :func:`inference <cvtk.ml.mmdetutils.ModuleCore.inference>`.
-    The :func:`train <cvtk.ml.mmdetutils.ModuleCore.train>` method is used for training the model
+    :func:`train <cvtk.ml.mmdetutils.DetRunner.train>`,
+    :func:`test <cvtk.ml.mmdetutils.DetRunner.test>`,
+    :func:`save <cvtk.ml.mmdetutils.DetRunner.save>`,
+    :func:`inference <cvtk.ml.mmdetutils.DetRunner.inference>`.
+    The :func:`train <cvtk.ml.mmdetutils.DetRunner.train>` method is used for training the model
     and perform validation and test if validation and test data are provided.
-    The :func:`test <cvtk.ml.mmdetutils.ModuleCore.test>` method is used for testing the model with test data.
+    The :func:`test <cvtk.ml.mmdetutils.DetRunner.test>` method is used for testing the model with test data.
     In general, the performance test is performed automatically after the training,
     but user can also run the test independently from the training process with
-    the :func:`test <cvtk.ml.mmdetutils.ModuleCore.test>` method.
-    The :func:`save <cvtk.ml.mmdetutils.ModuleCore.save>` method is used for saving the model weights,
+    the :func:`test <cvtk.ml.mmdetutils.DetRunner.test>` method.
+    The :func:`save <cvtk.ml.mmdetutils.DetRunner.save>` method is used for saving the model weights,
     configuration (design of model architecture), training log (e.g., mAP and loss per epoch), and test results.
-    The :func:`inference <cvtk.ml.mmdetutils.ModuleCore.inference>` method is used for running inference
+    The :func:`inference <cvtk.ml.mmdetutils.DetRunner.inference>` method is used for running inference
     with the trained model.
     The detailed usage of each method is described in the method documentation.
 
@@ -358,21 +367,21 @@ class ModuleCore():
 
     Examples:
         >>> from cvtk.ml.data import DataLabel
-        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, ModuleCore
+        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, DetRunner
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
         >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
         >>> weights = None # download from MMDetection repository
         >>> workspace = '/path/to/workspace'
         >>>
-        >>> model = ModuleCore(datalabel, cfg, weights, workspace)
+        >>> model = DetRunner(datalabel, cfg, weights, workspace)
         >>> 
-        >>> train = DataLoader('/path/to/train/coco.json', 'train')
+        >>> train = DataLoader(Dataset(datalabel, '/path/to/train/coco.json'), 'train')
         >>> model.train(train, epoch=10)
         >>> model.save('/path/to/model.pth')
     """
     def __init__(self,
-                 datalabel: DataLabel|str|list[str]|tuple[str],
+                 datalabel: cvtk.ml.data.DataLabel|str|list[str]|tuple[str],
                  cfg: str|dict,
                  weights: str|None=None,
                  workspace=None,
@@ -402,10 +411,10 @@ class ModuleCore():
 
 
     def __init_datalabel(self, datalabel):
-        if isinstance(datalabel, DataLabel):
+        if isinstance(datalabel, cvtk.ml.data.DataLabel):
             pass
         elif isinstance(datalabel, str) or isinstance(datalabel, list) or isinstance(datalabel, tuple):
-            datalabel = DataLabel(datalabel)
+            datalabel = cvtk.ml.data.DataLabel(datalabel)
         else:
             raise TypeError('Invalid type: {}'.format(type(datalabel)))
         return datalabel
@@ -457,7 +466,7 @@ class ModuleCore():
                 if isinstance(cfg[cfg_key], dict):
                     __set_cl(cfg[cfg_key], class_labels)
                 elif isinstance(cfg[cfg_key], (list, tuple)):
-                    if isinstance(cfg[cfg_key][0], dict):
+                    if len(cfg[cfg_key]) > 0 and isinstance(cfg[cfg_key][0], dict):
                         for elem in cfg[cfg_key]: 
                             __set_cl(elem, class_labels)
                 else:
@@ -488,13 +497,15 @@ class ModuleCore():
         return tempd, self.cfg.work_dir
 
 
-    def train(self,
-              train: DataLoader,
-              valid: DataLoader|None=None,
-              test: DataLoader|None=None,
-              epoch: int=20,
-              optimizer: dict|str|None=None,
-              scheduler: dict|str|None=None):
+    def train(
+        self,
+        train: DataLoader,
+        valid: DataLoader|None=None,
+        test: DataLoader|None=None,
+        epoch: int=20,
+        optimizer: dict|str|None=None,
+        scheduler: dict|str|None=None
+    ):
         """Perform model training
 
         The model can be trained with just the training data,
@@ -509,7 +520,7 @@ class ModuleCore():
         the model will undergo a final evaluation at the end of training,
         and the test results will also be saved in the workspace.
         The test can also be performed independently from the training process,
-        seed the :func:`test <cvtk.ml.mmdetutils.ModuleCore.test>` method for more details.
+        seed the :func:`test <cvtk.ml.mmdetutils.DetRunner.test>` method for more details.
 
         Args:
             train: A DataLoader class object.
@@ -521,14 +532,14 @@ class ModuleCore():
 
     Examples:
         >>> from cvtk.ml.data import DataLabel
-        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, ModuleCore
+        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, DetRunner
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
         >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
         >>> weights = None # download from MMDetection repository
         >>> workspace = '/path/to/workspace'
         >>>
-        >>> model = ModuleCore(datalabel, cfg, weights, workspace)
+        >>> model = DetRunner(datalabel, cfg, weights, workspace)
         >>> 
         >>> train = DataLoader(Dataset(datalabel, '/path/to/train/coco.json'), 'train')
         >>> model.train(train, epoch=10)
@@ -581,7 +592,11 @@ class ModuleCore():
             elif isinstance(optimizer, str) and optimizer.replace(' ', '') != '':
                 if optimizer[0] != '{' and optimizer[0:4] != 'dict':
                     optimizer = 'dict(' + optimizer + ')'
-                opt_dict = eval(optimizer)
+                opt_dict = self.__safe_eval(optimizer)
+                if not isinstance(opt_dict, dict):
+                    raise TypeError(f'Optimizer string must resolve to dict, got {type(opt_dict)}.')
+            else:
+                raise TypeError(f'Invalid optimizer type: {type(optimizer)}')
             self.cfg.optim_wrapper = dict(optimizer=opt_dict, type='OptimWrapper')
     
 
@@ -597,11 +612,76 @@ class ModuleCore():
                         scheduler = '[' + scheduler + ']'
                     else:
                         scheduler = '[dict(' + scheduler + ')]'
-                scheduler_dict = eval(scheduler)
+                scheduler_dict = self.__safe_eval(scheduler)
+                if not isinstance(scheduler_dict, (list, tuple)):
+                    raise TypeError(f'Scheduler string must resolve to list/tuple, got {type(scheduler_dict)}.')
+            else:
+                raise TypeError(f'Invalid scheduler type: {type(scheduler)}')
             self.cfg.param_scheduler = scheduler_dict
 
 
-    def test(self, test:dict) -> dict:
+    def __safe_eval(self, expr):
+        def _eval_node(node):
+            if isinstance(node, ast.Constant):
+                return node.value
+
+            if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+                val = _eval_node(node.operand)
+                if not isinstance(val, (int, float)):
+                    raise ValueError('Unary operators are only supported for numeric values.')
+                return +val if isinstance(node.op, ast.UAdd) else -val
+
+            if isinstance(node, ast.List):
+                return [_eval_node(e) for e in node.elts]
+
+            if isinstance(node, ast.Tuple):
+                return tuple(_eval_node(e) for e in node.elts)
+
+            if isinstance(node, ast.Dict):
+                out = {}
+                for k, v in zip(node.keys, node.values):
+                    key = _eval_node(k)
+                    out[key] = _eval_node(v)
+                return out
+
+            if isinstance(node, ast.Call):
+                if not isinstance(node.func, ast.Name) or node.func.id != 'dict':
+                    raise ValueError('Only dict(...) calls are supported in config strings.')
+
+                out = {}
+                if len(node.args) > 1:
+                    raise ValueError('dict(...) supports at most one positional argument here.')
+                if len(node.args) == 1:
+                    base = _eval_node(node.args[0])
+                    if not isinstance(base, dict):
+                        raise ValueError('Positional argument to dict(...) must resolve to dict.')
+                    out.update(base)
+                for kw in node.keywords:
+                    if kw.arg is None:
+                        raise ValueError('dict(**kwargs) is not supported in config strings.')
+                    out[kw.arg] = _eval_node(kw.value)
+                return out
+
+            raise ValueError(f'Unsupported syntax in config string: {ast.dump(node)}')
+
+        tree = ast.parse(expr, mode='eval')
+        return _eval_node(tree.body)
+
+
+    def __unwrap_dataset_cfg(self, dataset_cfg):
+        while (
+            isinstance(dataset_cfg, dict)
+            and ('dataset' in dataset_cfg)
+            and isinstance(dataset_cfg['dataset'], dict)
+        ):
+            dataset_cfg = dataset_cfg['dataset']
+        return dataset_cfg
+
+
+    def test(
+        self,
+        test: DataLoader
+    ) -> dict:
         """Validate the model with test data
         
         This method is used to validate the model with test data.
@@ -613,22 +693,25 @@ class ModuleCore():
         The performance metrics (e.g., mAP) will be returned as a dictionary.
 
         Args:
-            test: A file path to COCO format file containing test data.    
+            test: A DataLoader class object configured for test phase.
 
         Examples:
         >>> from cvtk.ml.data import DataLabel
-        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, ModuleCore
+        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, DetRunner
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
         >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
         >>> weights = '/path/to/model.pth'
         >>>
-        >>> model = ModuleCore(datalabel, cfg, weights, workspace)
+        >>> model = DetRunner(datalabel, cfg, weights, workspace)
         >>> 
-        >>> test = DataLoader('/path/to/test/coco.json', 'test')
+        >>> test = DataLoader(Dataset(datalabel, '/path/to/test/coco.json'), 'test')
         >>> metrics = model.test(test)
         >>> print(metrics)
         """
+        if not isinstance(test, DataLoader):
+            raise TypeError(f'`test` must be a DataLoader object, but got {type(test)}.')
+
         self.cfg.merge_from_dict(test.cfg)
         runner = mmengine.runner.Runner.from_cfg(self.cfg)
 
@@ -639,6 +722,8 @@ class ModuleCore():
         with open(test_outputs, 'rb') as infh:
             pred_outputs = pickle.load(infh)
 
+        input_image_name_map = self.__get_input_image_name_map()
+
         cocodict = {'images': [], 'annotations': [], 'categories': []}
         for cate in self.datalabel.labels:
             cocodict['categories'].append({
@@ -648,44 +733,48 @@ class ModuleCore():
 
         annid = 0
         for po in pred_outputs:
+            img_id = po['img_id']
+            img_path = input_image_name_map.get(img_id, po.get('img_path'))
+            if img_path in (None, ''):
+                img_path = f'image_{img_id}'
             cocodict['images'].append({
-                'id': po['img_id'],
-                'file_name': po['img_path'] if 'img_path' in po else None,
+                'id': img_id,
+                'file_name': img_path,
                 'width': po['ori_shape'][1] if 'ori_shape' in po else None,
                 'height': po['ori_shape'][0] if 'ori_shape' in po else None
             })
 
-            if 'pred_instances' in po:
-                imanns = self.__format_mmdet_output(po['img_path'], po['pred_instances'], cutoff=0)
-                for j, imann in enumerate(imanns.annotations):
+            if po.get('pred_instances') is not None:
+                imsize = (po['ori_shape'][1], po['ori_shape'][0]) if 'ori_shape' in po else None
+                imann = self.__format_mmdet_output(img_path, po.get('pred_instances'), cutoff=0, imsize=imsize)
+                for ann in imann.annotations:
                     annid += 1
+                    bbox_xywh = ann.bbox.to_xywh() if ann.bbox else None
                     cocodict['annotations'].append({
                         'id': annid,
-                        'image_id': cocodict['images'][-1]['id'],
-                        'category_id': self.datalabel[imann['label']],
-                        'score': imann['score'],
-                        'bbox': self.__xyxy2xywh(imann['bbox']),
-                        'area': imann['area'],
+                        'image_id': img_id,
+                        'category_id': self.datalabel[ann.label],
+                        'score': ann.score,
+                        'bbox': bbox_xywh,
+                        'area': ann.area,
                         'iscrowd': 0
                     })
-                    if 'mask' in imann and imann['mask'] is not None:
-                        cocodict['annotations'][-1]['segmentation'] = {
-                            'size': po['pred_instances']['masks'][j]['size'],
-                            'counts': po['pred_instances']['masks'][j]['counts'].decode(),
-                        }
+                    if ann.segm is not None:
+                        cocodict['annotations'][-1]['segmentation'] = ann.segm.to_rle()
 
-        with open(os.path.splitext(test_outputs)[0] + '.coco.json', 'w') as oufh:
-            json.dump(cocodict, oufh, cls=JsonComplexEncoder, indent=4, ensure_ascii=False)
+        cvtk.utils.save_json(cocodict,
+                             os.path.splitext(test_outputs)[0] + '.coco.json', indent=4, ensure_ascii=False)
 
         iou_type = 'bbox'
-        for pp in self.cfg.test_dataloader.dataset.pipeline:
+        test_dataset_cfg = self.__unwrap_dataset_cfg(self.cfg.test_dataloader.dataset)
+        for pp in test_dataset_cfg.get('pipeline', []):
             if pp['type'] == 'LoadAnnotations':
                 if 'with_mask' in pp and pp['with_mask']:
                     iou_type = 'segm'
 
-        self.test_stats = calc_stats(self.cfg.test_evaluator.ann_file,
+        self.test_stats = cvtk.data.coco.calc_stats(self.cfg.test_evaluator.ann_file,
                                      os.path.splitext(test_outputs)[0] + '.coco.json',
-                                     image_by='filepath',
+                                     image_by='file_name',
                                      category_by='name',
                                      iouType=iou_type)
         
@@ -697,17 +786,13 @@ class ModuleCore():
 
         return self.test_stats
     
-    
-    def __xyxy2xywh(self, bbox):
-        x1, y1, x2, y2 = bbox
-        x = x1
-        y = y1
-        w = x2 - x1
-        h = y2 - y1
-        return [x, y, w, h]
+
     
 
-    def save(self, output: str):
+    def save(
+        self,
+        output: str
+    ):
         """Save the model
 
         Save the model. If training metrics and test results,
@@ -720,13 +805,20 @@ class ModuleCore():
         
         """
         if not output.endswith('.pth'):
-            output + '.pth'
+            output += '.pth'
         if not os.path.exists(os.path.dirname(output)):
             if os.path.dirname(output) != '':
                 os.makedirs(os.path.dirname(output))
 
-        with open(os.path.join(self.workspace, 'last_checkpoint')) as chkf:
-            shutil.copy2(chkf.readline().strip(), output)
+        checkpoint_ref = os.path.join(self.workspace, 'last_checkpoint')
+        if os.path.exists(checkpoint_ref):
+            with open(checkpoint_ref) as chkf:
+                checkpoint_path = chkf.readline().strip()
+            shutil.copy2(checkpoint_path, output)
+        elif getattr(self.cfg, 'load_from', None) is not None and os.path.exists(self.cfg.load_from):
+            shutil.copy2(self.cfg.load_from, output)
+        else:
+            raise FileNotFoundError(f'No checkpoint found to save. Expected {checkpoint_ref} or valid cfg.load_from.')
         
         cfg_fpath = os.path.splitext(output)[0] + '.py'
         self.cfg.dump(cfg_fpath)
@@ -742,6 +834,10 @@ class ModuleCore():
     def __write_trainlog(self, output_prefix=None):
         train_log = []
         valid_log = []
+
+        if self.mmdet_log_dpath is None:
+            warnings.warn('Training log directory is not set. Skip writing training logs.')
+            return
 
         log_fpath = os.path.join(self.mmdet_log_dpath, 'vis_data', 'scalars.json')
         if os.path.exists(log_fpath):
@@ -763,59 +859,85 @@ class ModuleCore():
                 .to_csv(output_prefix + '.valid.txt', header=True, index=False, sep='\t'))
 
 
-    def inference(self, data: dict|str|list[str], cutoff: float=0) -> list[Image]:
-        """Inference
-
-        perform inference.
+    def inference(
+        self,
+        data: DataLoader|str|list[str],
+        cutoff: float=0.5
+    ) -> cvtk.data.ImageDataset:
+        """Perform model inference on images.
+        
+        Run inference on provided images and return results as an ImageDataset.
+        Each image in the dataset contains InstanceAnnotation objects with predictions
+        (bounding boxes, segmentations, scores).
         
         Args:
-            data: A path to a directory containing images,
-                a path to an image file, or a list of paths to image files.
-            score_cutoff (float): The score cutoff for inference. Default is 0.5.
-
+            data: A DataLoader object, a path to an image file, or a list of image paths.
+            cutoff (float): Score threshold for filtering predictions. Default 0.5.
+            
+        Returns:
+            ImageDataset: Collection of ImageRecord objects with predictions.
+            
         Examples:
             >>> test_images = ['sample1.jpg', 'sample2.jpg', 'sample3.jpg']
-            >>> outputs = model.inference(sample_images)
-            >>> for output in outputs:
-            >>>     bbox_img_fpath = os.path.splitext(output.file_path)[0] + '.bbox.png'
-            >>>     output.draw('bbox+segm', output=bbox_img_fpath)
-            >>>
-            >>> coco_json = model.inference(sample_images)
-            >>> with open('inference_results.json', 'w') as oufh:
-            >>>     json.dump(coco_json, outfh)
+            >>> dataset = model.inference(test_images)
+            >>> for record in dataset:
+            >>>     bbox_img_fpath = os.path.splitext(str(record.source))[0] + '.bbox.png'
+            >>>     record.draw(layers=['bbox', 'segm'], output=bbox_img_fpath)
+            >>> dataset.to_coco('predictions.json')  # Export as COCO format
         """
+        original_data = data
         input_images = []
+        input_image_sources = []
         
         if not isinstance(data, DataLoader):
+            if not isinstance(data, str) and not isinstance(data, list):
+                raise TypeError(f'`data` must be DataLoader, str, or list[str], but got {type(data)}.')
+            if isinstance(data, list) and any(not isinstance(p, str) for p in data):
+                raise TypeError('`data` list input must contain only string image paths.')
             # dataloader is not given, set minimum resource for inference
             data = DataLoader(
-                    Dataset(self.datalabel, data, DataPipeline()),
+                    Dataset(self.datalabel, data, pipeline=DataPipeline()),
                     phase='inference', batch_size=1, num_workers=1)
         
         # test dataloader defined by mmdet
         self.cfg.merge_from_dict(data.cfg)
-        data_dpath = self.cfg.test_dataloader.dataset.data_root
-        if data_dpath == '':
-            if self.cfg.test_dataloader.dataset.type == 'RepeatDataset':
-                data_dpath = self.cfg.test_dataloader.dataset.dataset.ann_file
-            else:
-                data_dpath = self.cfg.test_dataloader.dataset.ann_file
-        input_images = self.__load_images(data_dpath)
-        self.cfg.test_dataloader.dataset.data_root = ''
+        ds_cfg = self.cfg.test_dataloader.dataset
+        if ('type' in ds_cfg) and (ds_cfg['type'] == 'RepeatDataset') and ('dataset' in ds_cfg):
+            ds_cfg = ds_cfg['dataset']
+
+        data_dpath = ds_cfg['data_root'] if ('data_root' in ds_cfg) else ''
+        image_root = None
+        if ('ann_file' in ds_cfg) and (ds_cfg['ann_file'] not in (None, '')):
+            data_dpath = ds_cfg['ann_file']
+            image_root = ds_cfg['data_root'] if ('data_root' in ds_cfg) else None
+            with open(ds_cfg['ann_file']) as infh:
+                cocodict = json.load(infh)
+            input_image_sources = [im['file_name'] for im in cocodict.get('images', [])]
+
+        input_images = self.__load_images(data_dpath, image_root=image_root)
+        if len(input_image_sources) != len(input_images):
+            input_image_sources = input_images
+        elif isinstance(original_data, (str, list)) and ('ann_file' not in ds_cfg or ds_cfg.get('ann_file') in (None, '')):
+            input_image_sources = input_images
 
         if self.model is None:
             self.model = mmdet.apis.init_detector(self.cfg, self.cfg.load_from, device=self.device)
         pred_outputs = mmdet.apis.inference_detector(self.model, input_images)
         
-        # format
-        outputs_fmt = []
-        for target_image, output in zip(input_images, pred_outputs):
-            outputs_fmt.append(self.__format_mmdet_output(target_image, output.pred_instances, cutoff))
-
-        return outputs_fmt
+        # Format predictions as ImageRecord objects
+        records = []
+        for target_image, output in zip(input_image_sources, pred_outputs):
+            # Extract image size from MMDetection output
+            imsize = None
+            if hasattr(output, 'ori_shape') and output.ori_shape is not None:
+                imsize = (output.ori_shape[1], output.ori_shape[0])
+            record = self.__format_mmdet_output(target_image, output.pred_instances, cutoff, imsize=imsize)
+            records.append(record)
+        
+        return cvtk.data.ImageDataset(records=records)
     
     
-    def __load_images(self, dataset):
+    def __load_images(self, dataset, image_root: str|None=None):
         x = []
         if isinstance(dataset, str):
             if os.path.isfile(dataset):
@@ -828,12 +950,23 @@ class ModuleCore():
                         trainfh = open(dataset, 'r')
                     if dataset.endswith('.json') or dataset.endswith('.json.gz') or dataset.endswith('.json.gzip'):
                         cocofh = json.load(trainfh)
+                        if image_root is None:
+                            image_base = os.path.dirname(os.path.abspath(dataset))
+                        else:
+                            image_base = os.path.abspath(image_root)
                         for im in cocofh['images']:
-                            x.append(im['file_name'])
+                            im_path = im['file_name']
+                            if im_path in (None, ''):
+                                raise ValueError('Invalid COCO image entry: missing "file_name".')
+                            if not os.path.isabs(im_path):
+                                im_path = os.path.join(image_base, im_path)
+                            x.append(im_path)
                     else:
                         x = []
                         for line in trainfh:
                             words = line.rstrip().split('\t')
+                            if len(words) == 0 or words[0] == '':
+                                continue
                             x.append(words[0])
                     trainfh.close()
             elif os.path.isdir(dataset):
@@ -845,12 +978,27 @@ class ModuleCore():
             x = dataset
         
         if len(x) == 0:
-            raise ValueError('No image files found in the given dataset ({dataset}).')
+            raise ValueError(f'No image files found in the given dataset ({dataset}).')
 
         return x
     
     
-    def __format_mmdet_output(self, im_fpath, pred_instances, cutoff):
+    def __format_mmdet_output(self, im_fpath, pred_instances, cutoff, imsize=None):
+        """Format MMDetection predictions to ImageRecord with InstanceAnnotation objects.
+        
+        Converts MMDetection model predictions into cvtk data structures for
+        consistent handling across the library.
+        
+        Args:
+            im_fpath (str): Image file path or identifier.
+            pred_instances: MMDetection pred_instances containing bboxes, labels, scores, masks.
+            cutoff (float): Score threshold for filtering predictions.
+            imsize (tuple[int, int]|None): Image size as (width, height). Default None.
+            
+        Returns:
+            ImageRecord: Record with list of InstanceAnnotation objects (predictions).
+        """
+        # Extract bounding boxes, labels, and scores
         if 'bboxes' in pred_instances:
             if isinstance(pred_instances, dict):
                 pred_bboxes = pred_instances['bboxes'].detach().cpu().numpy().tolist()
@@ -865,138 +1013,67 @@ class ModuleCore():
             pred_labels = []
             pred_scores = []
         
+        # Extract masks (format is consistent within a single output: all RLE or all arrays)
+        pred_masks = [None] * len(pred_bboxes)
         if 'masks' in pred_instances:
-            pred_masks = []
-            pred_masks_ = None
             if isinstance(pred_instances, dict):
-                pred_masks_ = pred_instances['masks']
+                masks_raw = pred_instances['masks']
             else:
-                pred_masks_ = pred_instances.masks.detach().cpu().numpy()
-            for pred_mask_ in pred_masks_:
-                if isinstance(pred_mask_, dict):
-                    if 'size' in pred_mask_ and 'counts' in pred_mask_:
-                        pred_masks.append(pycocotools.mask.decode(pred_mask_))
+                masks_raw = pred_instances.masks.detach().cpu().numpy()
+            
+            # Determine mask format from first mask and process all consistently
+            if len(masks_raw) > 0:
+                is_rle_format = isinstance(masks_raw[0], dict)
+                for i, mask in enumerate(masks_raw):
+                    if is_rle_format:
+                        # RLE dict format: {'size': [...], 'counts': [...]}
+                        if not (isinstance(mask, dict) and 'size' in mask and 'counts' in mask):
+                            raise ValueError(f'Mask {i} expected RLE dict format with "size" and "counts" keys.')
+                        pred_masks[i] = mask
                     else:
-                        raise ValueError('The mask is expected to have "size" and "counts" when dict is given.')
-                elif isinstance(pred_mask_, np.ndarray):
-                    pred_masks.append(pred_mask_.astype(np.uint8))
-                else:
-                    raise ValueError('The mask is expected to be a dictionary or numpy array.')
-        else:
-            pred_masks = [None] * len(pred_bboxes)
+                        # Numpy array format
+                        if not isinstance(mask, np.ndarray):
+                            raise ValueError(f'Mask {i} expected numpy array format.')
+                        pred_masks[i] = mask.astype(np.uint8)
         
         pred_labels = [self.datalabel[_] for _ in pred_labels]
 
-        pred_labels_ = []
-        pred_bboxes_ = []
-        pred_masks_ = []
-        pred_scores_ = []
+        # Create InstanceAnnotation objects
+        annotations = []
         for i in range(len(pred_labels)):
             if pred_scores[i] >= cutoff:
-                pred_labels_.append(pred_labels[i])
-                pred_bboxes_.append(pred_bboxes[i])
-                pred_masks_.append(pred_masks[i])
-                pred_scores_.append(pred_scores[i])
-
-        imann = Annotation(pred_labels_, pred_bboxes_, pred_masks_, pred_scores_)
-        return Image(im_fpath, annotations=imann)
+                x1, y1, x2, y2 = pred_bboxes[i]
+                bbox = cvtk.data.Bbox.from_xyxy(x1, y1, x2, y2, imsize=imsize) if imsize else None
+                
+                # Create segmentation from mask
+                segm = None
+                if pred_masks[i] is not None and imsize:
+                    if isinstance(pred_masks[i], dict):
+                        segm = cvtk.data.Segm.from_rle(pred_masks[i], imsize=imsize)
+                    else:
+                        segm = cvtk.data.Segm.from_mask(pred_masks[i])
+                
+                ann = cvtk.data.InstanceAnnotation(label=pred_labels[i], bbox=bbox, segm=segm, score=pred_scores[i])
+                annotations.append(ann)
+        
+        return cvtk.data.ImageRecord(pathlib.Path(im_fpath), annotations=annotations, size=imsize)
         
 
+    def __get_input_image_name_map(self):
+        image_name_map = {}
+        ann_file = getattr(self.cfg.test_evaluator, 'ann_file', None)
+        if ann_file is None:
+            return image_name_map
 
-def plot_trainlog(train_log, y=None, output=None, title='Training Statistics', mode='lines', width=600, height=800, scale=1.9):
-    """Plot train log.
+        try:
+            with open(ann_file) as fh:
+                cocodict = json.load(fh)
+        except Exception:
+            return image_name_map
 
-    Plot train log. `train_log` format should be:
-
-    ::
-
-        epoch   lr      data_time       loss    loss_rpn_cls    loss_rpn_bbox   loss_cls        acc     loss_bbox       time    memory
-        1       2e-05   0.6311202049255371      2.71342134475708        0.3602621555328369      0.05165386199951172     1.4231624603271484      16.58203125     0.8783428072929382      2.2113988399505615  15742.0
-        2       6.004008016032065e-05   0.4661067724227905      2.708804130554199       0.3569621592760086      0.05149035155773163     1.4229193925857544      17.0703125      0.877432256937027   1.7055927515029907      15974.0
-        3       0.0001000801603206413   0.4101251761118571      2.6866095860799155      0.3382184902826945      0.05082566291093826     1.4187644720077515      19.62890625     0.8788009683291117  1.5375737349192302      15974.0
-        4       0.00014012024048096195  0.3806012272834778      2.6515525579452515      0.3062228001654148      0.04974065348505974     1.411013811826706       23.69140625     0.8845753073692322  1.4551105499267578      15974.0
-        5       0.00018016032064128258  0.36423935890197756     2.603787565231323       0.2676710680127144      0.048102487623691556    1.3975130558013915      33.4375 0.8905009746551513 1.403717279434204        15974.0
-
-    `valid_log` should be:
-
-    ::
-
-        coco/bbox_mAP   coco/bbox_mAP_50        coco/bbox_mAP_75        coco/bbox_mAP_s coco/bbox_mAP_m coco/bbox_mAP_l data_time       time    step
-        0.001   0.003   0.0     -1.0    -1.0    0.001   0.6635150909423828      1.0537631511688232      1
-        0.001   0.004   0.0     -1.0    -1.0    0.001   0.4849787950515747      0.861297607421875       2
-        0.001   0.006   0.0     -1.0    -1.0    0.003   0.30100834369659424     0.661655068397522       3
-        0.001   0.006   0.0     -1.0    -1.0    0.004   0.2974175214767456      0.6560839414596558      4
-        0.001   0.007   0.0     -1.0    -1.0    0.003   0.29656195640563965     0.6557941436767578      5
-        0.001   0.005   0.0     -1.0    -1.0    0.001   0.29982125759124756     0.6613177061080933      6
-
+        for image in cocodict.get('images', []):
+            if 'id' in image and 'file_name' in image:
+                image_name_map[image['id']] = image['file_name']
+        return image_name_map
     
-    """
-    # data preparation
-    train_log = pd.read_csv(train_log, sep='\t', header=0, comment='#')
-        
-    # coordinates
-    x = None
-    if 'epoch' in train_log.columns.values.tolist():
-        x = 'epoch'
-        if y is None:
-            y = ['loss', 'loss_cls', 'loss_bbox', 'acc']
-    else:
-        x = 'step'
-        if y is None:
-            y = ['coco/bbox_mAP', 'coco/bbox_mAP_50']
-
-    # plots
-    cols = px.colors.qualitative.Plotly
-    fig = plotly.subplots.make_subplots(rows=len(y), cols=1)
-    for y_ in y:
-        fig.add_trace(
-            go.Scatter(x=train_log[x], y=train_log[y_],
-                       mode=mode,
-                       name=y_,
-                       line=dict(color='#333333'),
-                       showlegend=False),
-            row=y.index(y_) + 1, col=1)
-        fig.update_yaxes(title_text=y_, row=y.index(y_) + 1, col=1)
-    
-    fig.update_layout(title_text=title, template='ggplot2')
-    fig.update_xaxes(title_text=x)
-
-    if output is not None:
-        fig.write_image(output, width=width, height=height, scale=scale)
-    else:
-        fig.show()
-    return fig
-
-
-def __generate_source(script_fpath, task, vanilla=False):
-    if not script_fpath.endswith('.py'):
-        script_fpath += '.py'
-
-    tmpl = ''
-    with open(importlib.resources.files('cvtk').joinpath('tmpl/_mmdet.py'), 'r') as infh:
-        tmpl = infh.readlines()
-
-    if vanilla is True:
-        cvtk_modules = [
-            {'cvtk': [JsonComplexEncoder, Annotation, Image, ImageDeck, imread]},
-            {'cvtk.format.coco': [calc_stats]},
-            {'cvtk.ml.data': [DataLabel]},
-            {'cvtk.ml.mmdetutils': [DataPipeline, Dataset, DataLoader, ModuleCore, plot_trainlog]}
-        ]
-        tmpl = __insert_imports(tmpl, __get_imports(__file__))
-        tmpl = __extend_cvtk_imports(tmpl, cvtk_modules)
-
-    tmpl = ''.join(tmpl)
-    tmpl = tmpl.replace('__SCRIPTNAME__', os.path.basename(script_fpath))
-    if task.lower()[:3] == 'det':
-        tmpl = tmpl.replace('__TASKARCH__', 'faster-rcnn_r101_fpn_1x_coco')
-        tmpl = tmpl.replace('__SAMPLEDATA__', 'bbox.json')
-    else:
-        tmpl = tmpl.replace('__TASKARCH__', 'mask-rcnn_r101_fpn_1x_coco')
-        tmpl = tmpl.replace('__SAMPLEDATA__', 'segm.json')
-        tmpl = tmpl.replace('with_mask=False', 'with_mask=True')
-    tmpl = __del_docstring(tmpl)
-
-    with open(script_fpath, 'w') as fh:
-        fh.write(tmpl)
 

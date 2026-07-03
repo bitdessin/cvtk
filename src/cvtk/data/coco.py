@@ -10,7 +10,7 @@ import PIL.Image
 import pycocotools
 import pycocotools.coco
 import pycocotools.cocoeval
-import cvtk.utils
+import cvtk
 
 
 _METRICS_LABELS = ['AP@[0.50:0.95|all|100]',
@@ -54,17 +54,23 @@ def crop(
 ) -> None:
     """Crop objects from images based on COCO annotations.
 
-    The function crops objects from images based on COCO annotations.
-    The cropped objects will be saved to the output directory.
+    Extracts individual annotated objects from images and saves them as separate cropped images.
+    Each crop is named using the image filename, category ID, and bounding box coordinates.
 
     Args:
-        input: A file path or a COCO dict.
-        output: The directory to save the cropped objects.
-        image_root: A root directory specifying the location of the images.
-            If None, image path stored in the COCO annotation file will be used directly. 
-    
+        input (str|dict): COCO annotation data. Can be a file path to JSON or a dict object.
+        image_root (str|None): Base directory for image paths. If None, uses paths as stored in annotations. Default is None.
+        output (str|None): Directory to save cropped object images. Directory created if needed.
+
     Returns:
-        None
+        None. Cropped images saved to output directory.
+
+    Raises:
+        ValueError: If output directory not specified or image not found for annotation.
+
+    Examples:
+        >>> crop('annotations.json', output='cropped_objects/')
+        >>> crop('annotations.json', image_root='/data/images', output='crops/')
     """
     if output is None:
         raise ValueError('`output` must be specified to save the cropped objects.')
@@ -107,23 +113,24 @@ def combine(
     ensure_ascii: bool=False,
     indent: int|None=4
 ) -> dict:
-    """Merge multiple COCO annotation files into one file.
+    """Merge multiple COCO annotation files into one.
 
-    The function will merge the images, annotations, and categories
-    from multiple COCO annotation files into one file.
-    The IDs of the images, annotations, and categories will be re-indexed.
+    Combines multiple COCO datasets by merging all images, annotations, and categories.
+    All IDs are re-indexed sequentially to avoid conflicts. Duplicate categories are deduplicated by name.
 
     Args:
-        input: A file path, COCO dict, or a list of file paths or COCO dicts to be merged.
-        image_root: A root directory specifying the location of the images.
-            If None, image path stored in the COCO annotation file will be used directly.
-        output: The merged COCO annotation data will be saved to the file if the file path is given.
-        ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
-        indent: If a non-negative integer is provided,
-            the output JSON data will be formatted with the given indentation.
+        input (str|dict|list|tuple): Single or multiple COCO sources. Can be file path(s) or dict object(s).
+        image_root (str|None): Base directory for image paths. If None, uses paths from annotations. Default is None.
+        output (str|None): File path to save merged COCO annotation. If None, only returns data without saving. Default is None.
+        ensure_ascii (bool): If True, escapes non-ASCII characters in JSON output. Default is False.
+        indent (int|None): JSON indentation level. If None, compact output. Default is 4.
 
     Returns:
-        dict: Merged COCO annotation data.
+        dict: Merged COCO annotation data with re-indexed IDs and deduplicated categories.
+
+    Examples:
+        >>> combined = combine(['ann1.json', 'ann2.json'], output='merged.json')
+        >>> combined = combine([coco_dict1, coco_dict2], image_root='/data/images')
     """
     merged_coco = {
         'images': [],
@@ -177,25 +184,30 @@ def split(
     ensure_ascii=False,
     indent=4
 ) -> list[dict]:
-    """Split a COCO annotation file into several subsets
+    """Split COCO annotation data into train/validation/test subsets.
 
-    The function splits the COCO annotation data into several subsets based on the given ratios.
-    The images will be shuffled before splitting if the `shuffle` parameter is set to True.
+    Partitions images into multiple subsets with specified ratios. Annotations follow images.
+    Categories are shared across all subsets. Optionally shuffles before splitting for randomization.
 
     Args:
-        input: The COCO annotation data to be split.
-        image_root: A root directory specifying the location of the images.
-            If None, image path stored in the COCO annotation file will be used directly.
-        ratios: Ratios of the train, validation, and test sets.
-        shuffle: If True, the images will be shuffled before splitting.
-        random_seed: The random seed for shuffling the images.
-        output: The split COCO annotation data will be saved to the file if the file path.
-            The output file name will be appended with the index of the split subset.
-        ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
-        indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
-        
+        input (str|dict): COCO annotation data as file path or dict object.
+        image_root (str|None): Base directory for image paths. If None, uses paths from annotations. Default is None.
+        ratios (list|tuple): Subset size ratios. Sum must equal 1.0. Default is [0.8, 0.1, 0.1].
+        shuffle (bool): If True, randomize image order before splitting. Default is True.
+        random_seed (int|None): Seed for shuffling reproducibility. If None, uses random state. Default is None.
+        output (str|None): Base path for saving subsets. Each file appended with .0, .1, .2, etc. Default is None.
+        ensure_ascii (bool): If True, escapes non-ASCII characters in JSON output. Default is False.
+        indent (int|None): JSON indentation level. If None, compact output. Default is 4.
+
     Returns:
-        list[dict]: A list of COCO annotation data for each subset.
+        list[dict]: List of COCO dicts, one per subset, in order matching ratios.
+
+    Raises:
+        ValueError: If ratios don't sum to approximately 1.0.
+
+    Examples:
+        >>> train, valid, test = split('data.json', ratios=[0.7, 0.2, 0.1], output='split')
+        >>> subsets = split(coco_dict, shuffle=True, random_seed=42)
     """
     cocodata = _load_coco(input, image_root=image_root)
     
@@ -243,20 +255,26 @@ def reindex(
     ensure_ascii=False,
     indent=4
 ) -> dict:
-    """Re-index the IDs of images, categories, and annotations in a COCO annotation file.
+    """Re-index image and category IDs sequentially.
+
+    Renumbers image and/or category IDs to be sequential (1, 2, 3, ...) and updates all
+    annotation references accordingly. Useful after removing items or merging datasets.
 
     Args:
-        input: The COCO annotation data to be re-indexed.
-        image_root: A root directory specifying the location of the images.
-            If None, image path stored in the COCO annotation file will be used directly.
-        image_id: If True, the image IDs will be re-indexed.
-        category_id: If True, the category IDs will be re-indexed.
-        output: The re-indexed COCO annotation data will be saved to the file if the file path is given.
-        ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
-        indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
-        
+        input (str|dict): COCO annotation data as file path or dict object.
+        image_root (str|None): Base directory for image paths. If None, uses paths from annotations. Default is None.
+        image_id (bool): If True, re-index image IDs sequentially. Default is True.
+        category_id (bool): If True, re-index category IDs sequentially. Default is True.
+        output (str|None): File path to save re-indexed data. If None, only returns without saving. Default is None.
+        ensure_ascii (bool): If True, escapes non-ASCII characters in JSON output. Default is False.
+        indent (int|None): JSON indentation level. If None, compact output. Default is 4.
+
     Returns:
-        dict: The re-indexed COCO annotation data.
+        dict: Re-indexed COCO annotation data with updated ID references.
+
+    Examples:
+        >>> reindexed = reindex('sparse_ids.json', output='dense_ids.json')
+        >>> reindexed = reindex(coco_dict, image_id=True, category_id=False)
     """
     cocodata = _load_coco(input, image_root=image_root)
     
@@ -291,24 +309,27 @@ def remove(
     ensure_ascii=False,
     indent=4
 ) -> dict:
-    """Remove specific items from COCO format data
+    """Remove specific images, categories, or annotations from COCO data.
 
-    This function remove the specific images, categories, or annotations from COCO format data.
-    The IDs of deleted image, category, and annotation will disappear. The remaining IDs will not be sorted.
-    
+    Deletes specified items and all related annotations. Related annotations are also removed
+    when their parent image or category is deleted. Original IDs are preserved (not re-indexed).
+
     Args:
-        input: The COCO annotation data to be re-indexed.
-        image_root: A root directory specifying the location of the images.
-            If None, image path stored in the COCO annotation file will be used directly.
-        images: Remove images from COCO format data by image ID if the items of list is integer or by image name if the items of the list is string.
-        categories: Remove categories from COCO format data by category ID if the items of list is integer or by category name if the items of the list is string.
-        annotations: Remove annotations from COCO format data by annotation ID if the items of list is integer or by annotation name if the items of the list is string.
-        output: The re-indexed COCO annotation data will be saved to the file if the file path is given.
-        ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
-        indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
-        
+        input (str|dict): COCO annotation data as file path or dict object.
+        image_root (str|None): Base directory for image paths. If None, uses paths from annotations. Default is None.
+        images (list|None): Images to remove. Items can be image IDs (int) or filenames (str). Default is None.
+        categories (list|None): Categories to remove. Items can be category IDs (int) or names (str). Default is None.
+        annotations (list|None): Annotations to remove by annotation ID (int). Default is None.
+        output (str|None): File path to save filtered data. If None, only returns without saving. Default is None.
+        ensure_ascii (bool): If True, escapes non-ASCII characters in JSON output. Default is False.
+        indent (int|None): JSON indentation level. If None, compact output. Default is 4.
+
     Returns:
-        dict: The COCO annotation data after removing the specific items.
+        dict: COCO data with specified items removed.
+
+    Examples:
+        >>> remove('data.json', images=[1, 5, 10], output='filtered.json')
+        >>> remove(coco_dict, categories=['background'], annotations=[1, 2, 3])
     """
     if isinstance(images, str) or isinstance(images, int):
         images = [images]
@@ -366,18 +387,24 @@ def stats(
     ensure_ascii: bool=False,
     indent: int|None=4
 ) -> dict:
-    """Calculate statistics of a COCO annotation file.
+    """Calculate dataset statistics from COCO annotations.
+
+    Computes summary statistics including total images, categories, and annotation counts per category.
 
     Args:
-        input: The COCO annotation data to be analyzed.
-        image_root: A root directory specifying the location of the images.
-            If None, image path stored in the COCO annotation file will be used directly.
-        output: The statistics of the COCO annotation data will be saved to the file if the file path is provided.
-        ensure_ascii: If True, the output is guaranteed to have all incoming non-ASCII characters escaped.
-        indent: If a non-negative integer is provided, the output JSON data will be formatted with the given indentation.
+        input (str|dict): COCO annotation data as file path or dict object.
+        image_root (str|None): Base directory for image paths. If None, uses paths from annotations. Default is None.
+        output (str|None): File path to save statistics. If None, only returns without saving. Default is None.
+        ensure_ascii (bool): If True, escapes non-ASCII characters in JSON output. Default is False.
+        indent (int|None): JSON indentation level. If None, compact output. Default is 4.
 
     Returns:
-        dict: A dictionary containing the statistics of the COCO annotation data.
+        dict: Statistics containing 'n_images', 'n_categories', and 'n_annotations' (per category).
+
+    Examples:
+        >>> stats_data = stats('data.json')
+        >>> print(f"Total images: {stats_data['n_images']}")
+        >>> print(f"Annotations per class: {stats_data['n_annotations']}")
     """
     cocodata = _load_coco(input, image_root=image_root)
 
@@ -422,28 +449,39 @@ def calc_stats(
     iouType: Literal['bbox', 'segm']='bbox',
     metrics_labels=None
 ) -> dict:
-    """Calculate detection/segmentation metrics from requested metric labels.
+    """Calculate object detection and segmentation metrics using COCO evaluation.
 
-    The function calculates the prediction performance metrics for object detection and instance segmentation tasks,
-    using the COCO evaluation API from pycocotools.
-    The ground truth and predicted annotations can be provided as file paths or dict objects of COCO annotations.
-    The image IDs between the ground truth and prediction can be different;
-    the function provides an option to map them by filepath or filename by specifying the `image_by` parameter.
-    In addition, the category IDs between the ground truth and prediction can be different;
-    the function provides an option to map them by category name by specifying the `category_by` parameter.
+    Computes standard COCO metrics (AP, AR) for object detection and instance segmentation tasks.
+    Supports flexible ID mapping between ground truth and predictions via image filenames or category names.
+    Uses pycocotools COCOeval for metric computation.
     
     Args:
-        gt (str|dict): Annotations of ground truth. It can be a path to a COCO annotation file or a dict object of COCO annotation.
-        pred (str|dict): The predicted annotations. It can be a path to a COCO annotation file or a dict object of COCO annotation.
-        image_root: A root directory specifying the location of the images.
-            If None, image path stored in the COCO annotation file will be used directly.
-        image_by (Literal['id', 'file_name']): The attribute to map image ID between ground truth and prediction. Default is 'id'.
-        category_by (Literal['id', 'name']): The attribute to map category ID between ground truth and prediction. Default is 'id'.
-        iouType (Literal['bbox', 'segm']): The type of IoU calculation. Default is 'bbox', but 'segm' is also available.
-        metrics_labels (list|tuple|None): The labels of metrics to be calculated. If None, all canonical COCO metric labels will be used.
+        gt (str|dict): Ground truth COCO annotations as file path or dict object.
+        pred (str|dict): Predicted COCO annotations as file path or dict object.
+        image_root (str|None): Base directory for image paths. If None, uses paths from annotations. Default is None.
+        image_by (Literal['id', 'file_name']): Attribute for mapping images between gt and pred:
+            - 'id': Match by image ID (must be identical)
+            - 'file_name': Match by filename (allows different IDs). Default is 'id'.
+        category_by (Literal['id', 'name']): Attribute for mapping categories:
+            - 'id': Match by category ID (must be identical)
+            - 'name': Match by category name (allows different IDs). Default is 'id'.
+        iouType (Literal['bbox', 'segm']): Evaluation type: 'bbox' for object detection, 'segm' for segmentation. Default is 'bbox'.
+        metrics_labels (list|tuple|None): Specific metric labels to compute (e.g., ['AP@[0.50:0.95|all|100]']).
+            If None, computes all 12 standard COCO metrics. Default is None.
 
     Returns:
-        dict: A dictionary containing the prediction performance metrics.
+        dict: Metrics with structure {'stats': {...}, 'class_stats': {...}}:
+            - 'stats': Overall metrics for each requested label
+            - 'class_stats': Per-category metrics with class names as keys
+
+    Raises:
+        ValueError: If iouType not in ['bbox', 'segm'], metrics_labels empty, or metric parsing fails.
+        TypeError: If metrics_labels not list or tuple.
+
+    Examples:
+        >>> results = calc_stats('gt.json', 'pred.json', iouType='bbox')
+        >>> print(f"AP: {results['stats']['AP@[0.50:0.95|all|100]']}")
+        >>> results = calc_stats(gt_dict, pred_dict, category_by='name', image_by='file_name')
     """
     if iouType not in ['bbox', 'segm']:
         raise ValueError(f'Invalid iouType: {iouType}. Supported types are "bbox" and "segm".')    
@@ -505,7 +543,15 @@ def calc_stats(
 
     if iouType == 'segm':
         for i, ann in enumerate(coco_pred['annotations']):
-            __check_list_in_dict(ann, 'segmentation')
+            # Segmentation can be either RLE (dict) or polygon (list)
+            if 'segmentation' not in ann:
+                raise ValueError(f'Annotation {i} missing "segmentation" key.')
+            if ann['segmentation'] is None:
+                raise ValueError(f'Annotation {i} has None segmentation.')
+            if not isinstance(ann['segmentation'], (list, dict)):
+                raise ValueError(f'Annotation {i} segmentation must be list (polygon) or dict (RLE), but got {type(ann["segmentation"])}.')
+            if isinstance(ann['segmentation'], list) and len(ann['segmentation']) == 0:
+                raise ValueError(f'Annotation {i} has empty segmentation list.')
             # avoid that pycocotools priorily loads bbox (may use bbox as segmentation coordinates)
             ann.pop('bbox', None)
     

@@ -24,6 +24,11 @@ dependencies = [
     'pycocotools',
     'scikit-learn',
     'scikit-image',
+    'torch',
+    'torchvision',
+    'plotly',
+    'kaleido',
+    'flask',
 ]
 dynamic = ['version']
 
@@ -38,15 +43,10 @@ cvtk = 'cvtk.scripts.cvtk:main'
 
 [project.optional-dependencies]
 full = [
-    'torch',
-    'torchvision',
     'openmim',
     'mmengine',
     'mmcv',
     'mmdet',
-    'plotly',
-    'kaleido',
-    'flask',
     'gunicorn',
     'label-studio-sdk',
     'label-studio-ml',

@@ -1,7 +1,7 @@
 import os
 import importlib
 import random
-from cvtk.utils import expand_cvtk_sources
+import cvtk
 
 
 def split_dataset(
@@ -166,8 +166,8 @@ def deploy_model(
         >>> # Generate segmentation script
         >>> deploy_model('segmenter.py', backend='mmdet', task='seg', vanilla=False)
     """
-    if task not in ['cls', 'classification', 'det', 'detection', 'seg', 'segmentation']:
-        raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`segm`) tasks.')
+    if task not in ['cls', 'classification', 'det', 'detection', 'seg', 'segm', 'segmentation']:
+        raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`seg`/`segm`/`segmentation`) tasks.')
     else:
         task = task[:3] if task not in ['cls', 'classification'] else 'cls'
     if backend not in ['torch', 'mmdet', 'mmdetection']:
@@ -186,7 +186,7 @@ def deploy_model(
     
     # extract and embed cvtk function definitions
     if vanilla:
-        tmpl_lines = expand_cvtk_sources(tmpl_lines)
+        tmpl_lines = cvtk.utils.expand_cvtk_sources(tmpl_lines)
     
     # write output        
     with open(script_name, 'w') as fh:

@@ -24,26 +24,33 @@ def imread(
     exif_transpose: bool=True,
     req_timeout: int=60
 ) -> PIL.Image.Image:
-    """Open image
+    """Load an image from various sources.
 
-    This function opens image from various sources,
-    including file, url, bytes, base64, PIL image, and numpy array
-    and convert it to the PIL.Image.Image class instance.
-    The format of input image is automatically estimated in the function.
-    Image will be transposed based on the EXIF orientation tag if `exif_transpose` is set to True.
-    Note that, if 'cv2' format is selected, the image will be in BGR format, compatible with OpenCV.
+    Loads an image from multiple source types (file path, URL, bytes, base64, PIL image, or numpy array)
+    and converts it to PIL.Image.Image. Automatically detects source type and handles EXIF orientation.
+    For numpy arrays in BGR format (OpenCV style), converts to RGB for PIL.
     
     Args:
-        source (str, pathlib.Path, bytes, PIL.Image.Image, np.ndarray): Image source,
-            can be a file path, url, bytes, base64, PIL image, or numpy array.
-        exif_transpose (bool): Whether to transpose the image based on the EXIF orientation tag.
-        req_timeout (int): The timeout for the request to get image from url. Default is 60 seconds.
+        source (str|pathlib.Path|bytes|PIL.Image.Image|np.ndarray): Image source:
+            - str: File path, HTTP/HTTPS URL, or base64 data URI (data:image/...)
+            - pathlib.Path: File path object
+            - bytes|bytearray: Image binary data
+            - PIL.Image.Image: Already loaded PIL image (returned as-is)
+            - np.ndarray: Numpy array in BGR format (OpenCV convention)
+        exif_transpose (bool): If True, correct image orientation using EXIF metadata. Default is True.
+        req_timeout (int): Timeout in seconds for HTTP requests. Default is 60.
     
     Returns:
-        PIL.Image.Image: Image data.
-        
+        PIL.Image.Image: Image in RGB format.
+    
+    Raises:
+        ValueError: If source type is unknown or image cannot be loaded.
+    
     Examples:
         >>> im = imread('image.jpg')
+        >>> im = imread('https://example.com/image.png')
+        >>> im = imread(image_bytes)
+        >>> im = imread('data:image/jpeg;base64,...')
     """
     im = None
 
@@ -93,21 +100,31 @@ def imconvert(
     source: ImageSourceTypes,
     format: str='PIL'
 ) -> ImageSourceTypes:
-    """Convert image format
+    """Convert image to different format.
 
-    Convert image format from any format to the specific format.
+    Loads image from any source and converts to requested output format.
+    Supports conversion between PIL, OpenCV (BGR), bytes, base64, and grayscale formats.
 
     Args:
-        source (ImageSourceTypes): Image source, can be a file path, url, bytes, base64, PIL image, or numpy array.
-        format (str): The format of the returned image. Default is 'PIL'.
-            Options are 'cv2' (or 'cv', 'array'), 'bytes', 'base64', and 'PIL'.
+        source (ImageSourceTypes): Image source (file path, URL, bytes, PIL image, numpy array).
+        format (str): Target format. Default is 'PIL'. Options:
+            - 'PIL': PIL.Image.Image in RGB
+            - 'cv2'/'cv'/'array': numpy array in BGR format (OpenCV convention)
+            - 'bytes': JPEG binary data
+            - 'base64': Base64-encoded JPEG data URI
+            - 'gray'/'grey': PIL.Image.Image in grayscale
     
     Returns:
-        ImageSourceTypes: Image data in the specified format.
-        
+        PIL.Image.Image|np.ndarray|bytes|str: Image in requested format.
+    
+    Raises:
+        ValueError: If format is unsupported.
+    
     Examples:
         >>> im = imread('image.jpg')
-        >>> imconvert(im, 'cv2')
+        >>> cv_array = imconvert(im, 'cv2')  # BGR numpy array
+        >>> base64_uri = imconvert(im, 'base64')
+        >>> gray = imconvert(im, 'gray')
     """
     def __pil2bytes(im) -> bytes:
         im_buff = io.BytesIO()
@@ -139,26 +156,30 @@ def imresize(
     longest: int|None=None,
     resample: object=PIL.Image.BILINEAR
 ) -> PIL.Image.Image:
-    """Resize the image
+    """Resize an image to specified dimensions or scale.
 
-    Resize the image to the given shape, scale, shortest, or longest side.
+    Loads image from any source and resizes using one of multiple methods:
+    fixed shape, scale factor, or based on shortest/longest side (useful for aspect ratio preservation).
 
     Args:
-        source: ImageSourceTypes: Image source, can be a file path, url, bytes, base64, PIL image, or numpy array.
-        shape: tuple: The shape of the resized image (height, width).
-        scale: float: The scale factor to resize the image.
-        shortest: int: The shortest side of the image.
-        longest: int: The longest side of the image.
-        resample: int: The resampling filter. Default is PIL.Image.BILINEAR.
+        source (ImageSourceTypes): Image source (file path, URL, bytes, PIL image, numpy array).
+        shape (tuple[int,int]|list[int,int]|None): Target size as (width, height). Default is None.
+        scale (float|None): Scale factor (0.5 = half size, 2.0 = double). Default is None.
+        shortest (int|None): Resize so shortest side equals this. Preserves aspect ratio. Default is None.
+        longest (int|None): Resize so longest side equals this. Preserves aspect ratio. Default is None.
+        resample: Resampling filter. Default is PIL.Image.BILINEAR (high quality, slower).
 
     Returns:
-        PIL.Image.Image: The resized image.
+        PIL.Image.Image: Resized image in RGB.
+
+    Raises:
+        ValueError: If none of shape, scale, shortest, or longest is specified.
 
     Examples:
-        >>> imresize('image.jpg', shape=(256, 256))
-        >>> imresize('image.jpg', scale=0.5)
-        >>> imresize('image.jpg', shortest=256)
-        >>> imresize('image.jpg', longest=256)    
+        >>> imresize('image.jpg', shape=(256, 256))  # Fixed size
+        >>> imresize('image.jpg', scale=0.5)  # Half size
+        >>> imresize('image.jpg', shortest=256)  # Shortest side = 256, aspect ratio preserved
+        >>> imresize('image.jpg', longest=512)  # Longest side = 512, aspect ratio preserved
     """
     im = imread(source)
     
@@ -182,14 +203,21 @@ def imwrite(
     filename: str,
     quality: int=95
 ) -> None:
-    """Save image to file
+    """Save image to file.
+
+    Loads image from any source and saves it to disk in JPEG format.
 
     Args:
-        source: ImageSourceTypes: Image source, can be a file path, url, bytes, base64, PIL image, or numpy array.
+        source (ImageSourceTypes): Image source (file path, URL, bytes, PIL image, numpy array).
+        filename (str): Output file path. Directory created if needed.
+        quality (int): JPEG quality (0-100). Higher = better quality, larger file. Default is 95.
+
+    Returns:
+        None. Image saved to disk.
 
     Examples:
-        >>> imwrite(imread('image.jpg'), 'image.jpg')
-        >>> imwrite(imread('image.jpg'), 'image.jpg', 100)
+        >>> imwrite('https://example.com/photo.png', 'downloaded.jpg')
+        >>> imwrite(imread('input.png'), 'output.jpg', quality=80)
     """
     im = imread(source)
     im.save(filename, quality=quality)
@@ -201,12 +229,24 @@ def imshow(
     ncol: int|None=None,
     nrow: int|None=None
 ) -> plt.Figure:
-    """Display image using matplotlib.pyplot
+    """Display one or more images in subplots.
+
+    Shows image(s) using matplotlib in an interactive window. Automatically arranges
+    multiple images in a grid layout. For file sources, displays filename as subplot title.
 
     Args:
-        source: ImageSourceTypes: Image or list of images to display.
-        ncol: int: Number of columns to display the images. Default is None (automatically set).
-        nrow: int: Number of rows to display the images. Default is None (automatically set).
+        source (ImageSourceTypes|list[ImageSourceTypes]): Single image or list of images.
+            Each can be file path, URL, bytes, PIL image, or numpy array.
+        ncol (int|None): Number of columns in grid. If None, auto-calculated for near-square layout. Default is None.
+        nrow (int|None): Number of rows in grid. If None, auto-calculated. Default is None.
+
+    Returns:
+        matplotlib.pyplot.Figure: The figure object for further customization.
+
+    Examples:
+        >>> imshow('image.jpg')
+        >>> imshow(['image1.jpg', 'image2.jpg', 'image3.jpg'], ncol=2)
+        >>> imshow([imread('a.png'), imread('b.png'), imread('c.png')])
     """
     if not isinstance(source, (list, tuple)):
         source = [source]
@@ -240,17 +280,28 @@ def imlist(
     source: str|list[str],
     ext: str|list[str]=['.jpg', '.jpeg', '.png', '.tiff'],
 ) -> list[str]:
-    """List all image files from the given sources
+    """Find all image files matching extensions in given paths.
 
-    The function recevies image sources as a file path, directory path, or a list of file and directory paths.
-    If the source is a directory, the function will recursively search for image files with the given extensions.
+    Recursively searches directories for image files with specified extensions.
+    Can process single paths or lists of mixed file and directory paths.
 
     Args:
-        source: str | list[str]: The directory path.
-        ext: list[str]: The list of file extensions to search for. Default is ['.jpg', 'jpeg', '.png', '.tiff'].
+        source (str|list[str]): File path(s) or directory path(s) to search.
+            - str: Single file or directory
+            - list[str]: Multiple files/directories
+        ext (str|list[str]): File extensions to match (case-insensitive). Default is ['.jpg', '.jpeg', '.png', '.tiff'].
+            Can be single string '.jpg' or list ['jpg', '.png'].
 
     Returns:
-        list: List of image files in the directory.
+        list[str]: List of matching image file paths (absolute paths, sorted).
+
+    Raises:
+        ValueError: If source path is not a file or directory.
+
+    Examples:
+        >>> imlist('image_dir')
+        >>> imlist(['dir1', 'dir2', 'single_image.jpg'])
+        >>> imlist('photos', ext=['.png', '.jpg'])
     """
     im_list = []
     if isinstance(source, str):

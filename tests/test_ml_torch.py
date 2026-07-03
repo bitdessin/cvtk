@@ -9,11 +9,11 @@ import cvtk
 class TestTorchScript(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-    
+        self.ws = testutils.set_ws('torch_script')
 
     def __run_proc(self, code_generator, vanilla):
         module = 'vanilla' if vanilla else 'cvtk'
-        dpath = testutils.set_ws(f'torch_torch__{code_generator}_{module}')
+        dpath = testutils.set_ws(os.path.join(self.ws, f'{code_generator}_{module}'))
         script = os.path.join(dpath, 'script.py')
         
         if code_generator == 'api':
@@ -65,7 +65,7 @@ class TestTorchScript(unittest.TestCase):
 class TestTorchUtils(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ws = testutils.set_ws('torch_torchutils')
+        self.ws = testutils.set_ws('torch_api')
 
         self.label = testutils.data['cls']['label']
         self.train = testutils.data['cls']['train']
