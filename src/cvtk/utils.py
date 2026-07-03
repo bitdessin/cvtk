@@ -1,9 +1,13 @@
 import json
 import numpy as np
 import ast
+import ast
 import os
-import re
+from pathlib import Path
+import ast
 import importlib.resources
+import os
+from pathlib import Path
 
 
 class JsonComplexEncoder(json.JSONEncoder):
@@ -83,411 +87,402 @@ def save_json(data, output, indent=None, ensure_ascii=False):
                   cls=JsonComplexEncoder)
 
 
-def expand_cvtk_sources(script_lines):
-    """Expand cvtk imports in a script to include source definitions.
-    
-    Transforms a script that uses cvtk into a standalone script with embedded cvtk
-    definitions, imports, and renamed references. This allows the script to run
-    without the cvtk package installed.
-        
-    Args:
-        script_lines (list[str]): Lines of the original script using cvtk.
-    
-    Returns:
-        list[str]: Lines of the expanded script without cvtk imports.
-    
-    Examples:
-        >>> script_lines = [
-        ...     'import cvtk',
-        ...     'from cvtk.ml import ClsRunner',
-        ...     'runner = ClsRunner(datalabel, model)'
-        ... ]
-        >>> expanded = expand_cvtk_sources(script_lines)
-        >>> with open('standalone.py', 'w') as f:
-        ...     f.writelines(expanded)
-    """
-    source_map = _collect_import_path()
-    
-    ex_script_lines = []
-    
-    # find all cvtk function calls (e.g., cvtk.io.imread, cvtk.ml.split_dataset)
-    cvtk_functions = set(re.findall(r'cvtk\.[\w\.]+', ''.join(script_lines)))
-    
-    # remove cvtk imports
-    for line in script_lines:
-        stripped = line.strip()        
-        if stripped.startswith('import cvtk') or stripped.startswith('from cvtk'):
-            continue
-        ex_script_lines.append(line)
-    
-    # extract definitions for all cvtk functions
-    script_cvtk = []
-    source_files_used = set()  # track which source files are used for import collection
-    
-    # build short-name
-    # e.g. {'DataLabel': 'cvtk_ml_data_DataLabel', 'ClsRunner': 'cvtk_ml_torchutils_ClsRunner'}
-    short_name_to_renamed = {}
-    for func_path_str in cvtk_functions:
-        if func_path_str in source_map:
-            short_name = func_path_str.split('.')[-1]
-            renamed = _generate_cvtk_name(func_path_str)
-            if short_name != renamed:  # only when actually renamed
-                short_name_to_renamed[short_name] = renamed
 
-    # build work queue: (source_file, func_name, renamed)
-    work_queue = []
-    for func_path_str in cvtk_functions:
-        if func_path_str in source_map:
-            source_file = source_map[func_path_str]
-            func_name = func_path_str.split('.')[-1]
-            renamed = _generate_cvtk_name(func_path_str)
-            work_queue.append((source_file, func_name, renamed))
-    
-    # build a lookup
-    rename_lookup = {(sf, fn): rn for sf, fn, rn in work_queue}
-    
-    # ordered list of (source_file, func_name, renamed) to maintain dep order
-    ordered_extractions = []
-    processed_names = set()
-    def _collect_with_deps(source_file, func_name, renamed):
-        key = (source_file, func_name)
-        if key in processed_names:
+DEF_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+
+def expand_cvtk_sources(script_lines, cvtk_root=None):
+    source_map = _collect_import_path(cvtk_root)
+
+    main_code, used_paths = _rewrite_cvtk_refs(
+        "".join(script_lines),
+        source_map,
+        allow_import_cvtk=True,
+    )
+
+    definitions, source_files = _collect_required_defs(used_paths, source_map)
+
+    output = []
+    output.extend(_collect_imports(source_files))
+    output.append("\n")
+
+    for source_file, name in definitions:
+        code = _extract_top_level_def(source_file, name)
+        code, _ = _rewrite_cvtk_refs(code, source_map, allow_import_cvtk=False)
+        output.extend(_to_lines(code))
+        output.append("\n")
+
+    output.append("\n")
+    output.extend(_to_lines(main_code))
+    return output
+
+
+class _CvtkRefRewriter(ast.NodeTransformer):
+    def __init__(self, source_map, allow_import_cvtk):
+        self.source_map = source_map
+        self.allow_import_cvtk = allow_import_cvtk
+        self.used_paths = set()
+
+    def visit_Import(self, node):
+        kept = []
+
+        for alias in node.names:
+            if alias.name == "cvtk" and alias.asname is None:
+                if self.allow_import_cvtk:
+                    continue
+                raise ValueError("cvtk source definitions must not import cvtk.")
+
+            if alias.name.startswith("cvtk"):
+                raise ValueError(
+                    f"Unsupported cvtk import: import {alias.name}. "
+                    "Use only `import cvtk` and `cvtk.xxx.yyy(...)`."
+                )
+
+            kept.append(alias)
+
+        if not kept:
+            return None
+
+        node.names = kept
+        return node
+
+    def visit_ImportFrom(self, node):
+        module = node.module or ""
+
+        if module == "cvtk" or module.startswith("cvtk."):
+            raise ValueError(
+                f"Unsupported cvtk import: from {module} import ... "
+                "Use `import cvtk` and fully qualified `cvtk.xxx.yyy(...)`."
+            )
+
+        return node
+
+    def visit_Attribute(self, node):
+        full_path = _attribute_to_dotted_name(node)
+        mapped_path, tail = _longest_source_map_prefix(full_path, self.source_map)
+
+        if mapped_path is not None:
+            self.used_paths.add(mapped_path)
+            return ast.copy_location(
+                _build_replacement(mapped_path.rsplit(".", 1)[-1], tail, node.ctx),
+                node,
+            )
+
+        return self.generic_visit(node)
+
+
+def _rewrite_cvtk_refs(code, source_map, allow_import_cvtk):
+    tree = ast.parse(code)
+    rewriter = _CvtkRefRewriter(source_map, allow_import_cvtk)
+    tree = rewriter.visit(tree)
+    ast.fix_missing_locations(tree)
+
+    return ast.unparse(tree) + "\n", rewriter.used_paths
+
+
+def _attribute_to_dotted_name(node):
+    parts = []
+    cur = node
+
+    while isinstance(cur, ast.Attribute):
+        parts.append(cur.attr)
+        cur = cur.value
+
+    if not isinstance(cur, ast.Name):
+        return None
+
+    return ".".join([cur.id, *reversed(parts)])
+
+
+def _longest_source_map_prefix(full_path, source_map):
+    if full_path is None:
+        return None, []
+
+    parts = full_path.split(".")
+
+    for i in range(len(parts), 1, -1):
+        candidate = ".".join(parts[:i])
+        if candidate in source_map:
+            return candidate, parts[i:]
+
+    return None, []
+
+
+def _build_replacement(name, tail, ctx):
+    node = ast.Name(id=name, ctx=ast.Load())
+
+    for attr in tail:
+        node = ast.Attribute(value=node, attr=attr, ctx=ast.Load())
+
+    node.ctx = ctx
+    return node
+
+
+def _collect_required_defs(initial_paths, source_map):
+    ordered = []
+    seen = set()
+    visiting = set()
+    source_files = set()
+    name_owners = {}
+
+    def add_by_path(cvtk_path):
+        source_file = os.path.abspath(source_map[cvtk_path])
+        name = cvtk_path.rsplit(".", 1)[-1]
+        add_by_name(source_file, name)
+
+    def add_by_name(source_file, name):
+        key = (os.path.abspath(source_file), name)
+
+        if key in seen:
             return
-        processed_names.add(key)
-        source_files_used.add(source_file)
-        
-        deps = _find_local_deps(source_file, func_name)
-        for dep_name in deps:
-            dep_key = (source_file, dep_name)
-            if dep_key not in processed_names:
-                dep_renamed = rename_lookup.get(dep_key, dep_name)
-                _collect_with_deps(source_file, dep_name, dep_renamed)
-        
-        ordered_extractions.append((source_file, func_name, renamed))
-    
-    for source_file, func_name, renamed in work_queue:
-        _collect_with_deps(source_file, func_name, renamed)
-    
-    for source_file, func_name, renamed in ordered_extractions:
-        definition_lines = _extract_function_definition(source_file, func_name)
-        if definition_lines:
-            renamed_def_lines = _rename_function_definition(definition_lines, func_name, renamed)
-            # replace internal references to short names (e.g., bare `DataLabel` -> `cvtk_ml_data_DataLabel`)
-            renamed_def_lines = _replace_short_name_refs(renamed_def_lines, short_name_to_renamed, func_name)
-            script_cvtk.extend(renamed_def_lines)
-            script_cvtk.append('\n')
-    
-    # collect non-cvtk imports from source files used
-    import_lines = _collect_imports(source_files_used)
-    
-    # replace function calls in main script (cvtk.io.imread -> cvtk_io_imread)
-    script_main = []
-    for line in ex_script_lines:
-        modified_line = line
-        
-        # replace cvtk function calls
-        for func_path_str in cvtk_functions:
-            renamed = _generate_cvtk_name(func_path_str)
-            modified_line = modified_line.replace(func_path_str, renamed)
-        
-        script_main.append(modified_line)
-    
-    final_script_lines = import_lines + ['\n'] + script_cvtk + ['\n\n'] + script_main
-    final_script_lines = _del_docstring(final_script_lines)
-    return final_script_lines
 
+        if key in visiting:
+            return
 
-def _collect_import_path(cvtk_root=None):
-    if cvtk_root is None:
-        try:
-            cvtk_root = str(importlib.resources.files('cvtk'))
-        except:
-            import cvtk
-            cvtk_root = os.path.dirname(cvtk.__file__)
-    
-    cvtk_root = str(cvtk_root)
-    source_map = {}
-    
-    for root, dirs, files in os.walk(cvtk_root):
-        if '__init__.py' not in files:
-            continue
-        
-        init_path = os.path.join(root, '__init__.py')
-        
-        rel_path = os.path.relpath(root, cvtk_root)
-        if rel_path == '.':
-            module_name = 'cvtk'
-        else:
-            module_name = 'cvtk.' + rel_path.replace(os.sep, '.')
-        
-        try:
-            with open(init_path, 'r') as f:
-                source_code = f.read()
-                tree = ast.parse(source_code)
-        except Exception as e:
-            continue
-        
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            
-            if node.module is None and node.level > 0:
-                import_module = ''
-            else:
-                import_module = node.module or ''
-            
-            if node.level > 0:
-                if node.level == 1:
-                    search_dir = root
-                else:
-                    search_dir = os.path.dirname(root)
-                    for _ in range(node.level - 2):
-                        search_dir = os.path.dirname(search_dir)
-                
-                if import_module:
-                    module_file = _resolve_module_file(import_module, search_dir)
-                else:
-                    module_file = os.path.join(search_dir, '__init__.py')
-            else:
-                continue
-            
-            if module_file is None:
-                continue
-            
-            for alias in node.names:
-                imported_name = alias.name
-                
-                if imported_name == '*':
-                    public_names = _extract_public_names(module_file)
-                    for name in public_names:
-                        full_path = f'{module_name}.{name}'
-                        source_map[full_path] = os.path.abspath(module_file)
-                else:
-                    full_path = f'{module_name}.{imported_name}'
-                    submodule_file = _resolve_module_file(imported_name, search_dir)
-                    if submodule_file is not None:
-                        public_names = _extract_public_names(submodule_file)
-                        for name in public_names:
-                            nested_path = f'{full_path}.{name}'
-                            source_map[nested_path] = os.path.abspath(submodule_file)
-                    else:
-                        source_map[full_path] = os.path.abspath(module_file)
-    
-    return source_map
+        owner = name_owners.get(name)
+        if owner is not None and owner != key[0]:
+            raise ValueError(
+                f"Name conflict while expanding cvtk: `{name}` exists in both "
+                f"{owner} and {key[0]}. Use unique exported names or add renaming."
+            )
 
+        name_owners[name] = key[0]
+        visiting.add(key)
+        source_files.add(key[0])
 
-def _extract_public_names(file_path):
-    try:
-        with open(file_path, 'r') as f:
-            tree = ast.parse(f.read())
-    except:
+        for dep_name in _find_local_deps(key[0], name):
+            add_by_name(key[0], dep_name)
+
+        for dep_path in _find_cvtk_deps_in_def(key[0], name, source_map):
+            add_by_path(dep_path)
+
+        visiting.remove(key)
+        seen.add(key)
+        ordered.append(key)
+
+    for cvtk_path in sorted(initial_paths):
+        add_by_path(cvtk_path)
+
+    return ordered, source_files
+
+def _find_local_deps(source_file, name):
+    tree, _ = _read_module(source_file)
+    top_defs = _top_level_defs(tree)
+
+    target = top_defs.get(name)
+    if target is None:
         return []
-    names = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
-            if not node.name.startswith('_'):
-                names.append(node.name)    
-    return names
+
+    refs = {
+        node.id
+        for node in ast.walk(target)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    }
+
+    return sorted(ref for ref in refs if ref != name and ref in top_defs)
 
 
-def _resolve_module_file(module_name, package_dir):
-    file_path = os.path.join(package_dir, f'{module_name}.py')
-    if os.path.exists(file_path):
-        return file_path
-    package_path = os.path.join(package_dir, module_name, '__init__.py')
-    if os.path.exists(package_path):
-        return package_path
-    return None
+def _find_cvtk_deps_in_def(source_file, name, source_map):
+    tree, _ = _read_module(source_file)
+    target = _top_level_defs(tree).get(name)
+
+    if target is None:
+        return []
+
+    collector = _CvtkDepCollector(source_map)
+    collector.visit(target)
+    return sorted(collector.paths)
 
 
-def _generate_cvtk_name(func_path):
-    return func_path.replace('.', '_')
+class _CvtkDepCollector(ast.NodeVisitor):
+    def __init__(self, source_map):
+        self.source_map = source_map
+        self.paths = set()
+
+    def visit_Attribute(self, node):
+        full_path = _attribute_to_dotted_name(node)
+        mapped_path, _ = _longest_source_map_prefix(full_path, self.source_map)
+
+        if mapped_path is not None:
+            self.paths.add(mapped_path)
+            return
+
+        self.generic_visit(node)
+        
+        
+def _read_module(source_file):
+    source_file = os.path.abspath(source_file)
+    code = Path(source_file).read_text(encoding="utf-8")
+    return ast.parse(code), code
+
+
+def _top_level_defs(tree):
+    return {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, DEF_NODES)
+    }
+
+
+def _extract_top_level_def(source_file, name):
+    tree, code = _read_module(source_file)
+    node = _top_level_defs(tree).get(name)
+
+    if node is None:
+        raise ValueError(f"Definition `{name}` was not found in {source_file}")
+
+    lines = code.splitlines(keepends=True)
+
+    if getattr(node, "decorator_list", None):
+        start = node.decorator_list[0].lineno - 1
+    else:
+        start = node.lineno - 1
+
+    end = node.end_lineno
+    return "".join(lines[start:end])
 
 
 def _collect_imports(source_files):
     seen = set()
     result = []
+
     for source_file in sorted(source_files):
-        try:
-            with open(source_file, 'r') as f:
-                source_code = f.read()
-            tree = ast.parse(source_code)
-        except:
-            continue
-        
-        lines = source_code.splitlines(keepends=True)
-        
+        tree, code = _read_module(source_file)
+        lines = code.splitlines(keepends=True)
+
         for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
+            if isinstance(node, DEF_NODES):
                 continue
-            
+
             if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name.startswith('cvtk'):
-                        continue
-                    line = lines[node.lineno - 1]
-                    key = line.strip()
-                    if key not in seen:
-                        seen.add(key)
-                        result.append(line)
-            
-            elif isinstance(node, ast.ImportFrom):
-                module = node.module or ''
-                if module.startswith('cvtk') or (node.level > 0):
+                line = lines[node.lineno - 1]
+                names = [alias.name for alias in node.names]
+
+                if any(name == "cvtk" or name.startswith("cvtk.") for name in names):
                     continue
-                
-                line = lines[node.lineno - 1]
-                key = line.strip()
-                if key not in seen:
-                    seen.add(key)
-                    result.append(line)
-            
-            elif isinstance(node, ast.Assign):
-                line = lines[node.lineno - 1]
-                key = line.strip()
-                if key not in seen and not key.startswith('#'):
-                    seen.add(key)
-                    result.append(line)
-    
+
+                _append_once(result, seen, line)
+
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+
+                if node.level > 0:
+                    continue
+
+                if module == "cvtk" or module.startswith("cvtk."):
+                    continue
+
+                _append_once(result, seen, lines[node.lineno - 1])
+
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                for line in lines[node.lineno - 1:node.end_lineno]:
+                    _append_once(result, seen, line)
+
     return result
 
 
-def _extract_function_definition(source_file, func_name):
-    try:
-        with open(source_file, 'r') as f:
-            source_code = f.read()
-            lines = source_code.split('\n')
-        
-        tree = ast.parse(source_code)
-        
-        target_node = None
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name == func_name:
-                target_node = node
-                break
-        
-        if target_node is None:
-            return []
-        
-        start_line = target_node.lineno - 1  # convert to 0-indexed
-        end_line = target_node.end_lineno
-        
-        definition_lines = lines[start_line:end_line]
-        return [line + '\n' for line in definition_lines]
-    except:
-        return []
+def _append_once(result, seen, line):
+    key = line.strip()
 
-
-def _find_local_deps(source_file, func_name):
-    try:
-        with open(source_file, 'r') as f:
-            source_code = f.read()
-        tree = ast.parse(source_code)
-    except:
-        return []
-
-    top_level_defs = {}
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
-            top_level_defs[node.name] = node
-
-    target_node = top_level_defs.get(func_name)
-    if target_node is None:
-        return []
-
-    referenced_names = set()
-    for node in ast.walk(target_node):
-        if isinstance(node, ast.Name):
-            referenced_names.add(node.id)
-        elif isinstance(node, ast.Attribute):
-            pass  # skip chained attributes
-
-    if isinstance(target_node, ast.ClassDef):
-        for base in target_node.bases:
-            if isinstance(base, ast.Name):
-                referenced_names.add(base.id)
-
-    deps = []
-    for name in referenced_names:
-        if name != func_name and name in top_level_defs:
-            deps.append(name)
-    return deps
-
-
-def _rename_function_definition(def_lines, old_name, new_name):
-    result = []
-    
-    for line in def_lines:
-        stripped = line.strip()
-        
-        # Replace function definition
-        if stripped.startswith(f'def {old_name}('):
-            line = line.replace(f'def {old_name}(', f'def {new_name}(', 1)
-        # Replace class definition
-        elif stripped.startswith(f'class {old_name}(') or stripped.startswith(f'class {old_name}:'):
-            line = line.replace(f'class {old_name}', f'class {new_name}', 1)
-        
+    if key and key not in seen:
+        seen.add(key)
         result.append(line)
-    
-    return result
 
 
-def _replace_short_name_refs(def_lines, short_name_to_renamed, current_name):
-    result = []
-    for line in def_lines:
-        modified_line = line
-        for short_name, renamed in short_name_to_renamed.items():
-            if short_name == current_name:
+def _to_lines(code):
+    return [line + "\n" for line in code.splitlines()]
+
+
+def _collect_import_path(cvtk_root=None):
+    if cvtk_root is None:
+        cvtk_root = importlib.resources.files("cvtk")
+
+    cvtk_root = Path(cvtk_root)
+    source_map = {}
+
+    for init_path in cvtk_root.rglob("__init__.py"):
+        package_dir = init_path.parent
+        rel = package_dir.relative_to(cvtk_root)
+
+        package_name = "cvtk"
+        if str(rel) != ".":
+            package_name += "." + ".".join(rel.parts)
+
+        tree = ast.parse(init_path.read_text(encoding="utf-8"))
+        
+        # Collect import statements from all contexts (including try/except blocks)
+        import_nodes = []
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom):
+                import_nodes.append(node)
+            elif isinstance(node, ast.Try):
+                # Also collect imports from try blocks
+                for stmt in node.body:
+                    if isinstance(stmt, ast.ImportFrom):
+                        import_nodes.append(stmt)
+
+        for node in import_nodes:
+            if node.level == 0:
                 continue
-            # replace whole-word occurrences but NOT after a dot (e.g., torch.utils.data.Dataset should stay)
-            pattern = rf'(?<!\.)\b{re.escape(short_name)}\b'
-            modified_line = re.sub(pattern, renamed, modified_line)
-        result.append(modified_line)
-    return result
 
-    
-    
-def _del_docstring(func_source: list[str]) -> list[str]:
-    """Remove docstrings from source code.
-    
-    Strips triple-quoted docstrings from function/class definitions and main block,
-    keeping only executable code and non-docstring comments.
-    
-    Args:
-        func_source (list[str]): Source code lines.
-        
-    Returns:
-        list[str]: Source lines without docstrings.
-    """
-    func_source_ = []
-    is_docstring = False
-    omit = False
-    
-    for line in func_source:
-        stripped = line.strip()
-        
-        # Stop processing after main block
-        if stripped.startswith('if __name__') and '__main__' in stripped:
-            omit = True
-        
-        if omit:
-            continue
-        
-        # Count triple-quote occurrences to handle multi-line and single-line docstrings
-        # Each pair of quotes toggles docstring state; odd count = toggle, even = no change
-        quote_count = stripped.count('"""') + stripped.count("'''")
-        
-        if quote_count > 0:
-            # Odd occurrences: toggle docstring state
-            if quote_count % 2 == 1:
-                is_docstring = not is_docstring
-            # Skip all delimiter lines
-            continue
-        
-        # Only append non-docstring lines
-        if not is_docstring:
-            line = line.replace('\\\\', '\\')
-            func_source_.append(line)
-    
-    return func_source_
-    
+            base_dir = _relative_import_base(package_dir, node.level)
+            module_file = _resolve_module_file(node.module or "", base_dir)
+
+            if module_file is None:
+                continue
+
+            for alias in node.names:
+                if alias.name == "*":
+                    for public_name in _extract_public_names(module_file):
+                        source_map[f"{package_name}.{public_name}"] = str(module_file)
+                    continue
+
+                full_path = f"{package_name}.{alias.name}"
+                submodule_file = _resolve_module_file(alias.name, base_dir)
+
+                if submodule_file is None:
+                    source_map[full_path] = str(module_file)
+                    continue
+
+                for public_name in _extract_public_names(submodule_file):
+                    source_map[f"{full_path}.{public_name}"] = str(submodule_file)
+
+    return source_map
+
+
+def _relative_import_base(package_dir, level):
+    base = Path(package_dir)
+
+    for _ in range(level - 1):
+        base = base.parent
+
+    return base
+
+
+def _resolve_module_file(module_name, package_dir):
+    package_dir = Path(package_dir)
+
+    if module_name:
+        module_path = package_dir.joinpath(*module_name.split("."))
+    else:
+        module_path = package_dir
+
+    file_path = module_path.with_suffix(".py")
+    if file_path.exists():
+        return file_path
+
+    init_path = module_path / "__init__.py"
+    if init_path.exists():
+        return init_path
+
+    return None
+
+
+def _extract_public_names(file_path):
+    tree = ast.parse(Path(file_path).read_text(encoding="utf-8"))
+
+    return [
+        node.name
+        for node in tree.body
+        if isinstance(node, DEF_NODES) and not node.name.startswith("_")
+    ]

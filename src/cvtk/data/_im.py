@@ -46,6 +46,18 @@ def _clip_coords(
 
 @dataclass(frozen=True)
 class Bbox:
+    """Bounding box representation with multiple formats and conversions.
+    
+    Supports multiple coordinate formats (pixel and normalized) and provides
+    conversions between them. All pixel coordinates are clipped to image boundaries.
+    
+    Args:
+        y_min (float | None): Minimum y coordinate (top). Default None.
+        x_min (float | None): Minimum x coordinate (left). Default None.
+        y_max (float | None): Maximum y coordinate (bottom). Default None.
+        x_max (float | None): Maximum x coordinate (right). Default None.
+        imsize (tuple[int, int] | None): Image size as (width, height). Default None.
+    """
     y_min: float | None = field(default=None, repr=False)
     x_min: float | None = field(default=None, repr=False)
     y_max: float | None = field(default=None, repr=False)
@@ -62,7 +74,23 @@ class Bbox:
         h: float,
         imsize: _ImgSize,
     ) -> Bbox:
-        """Create bbox from top-left corner (x, y) and width, height. imsize is required."""
+        """Create bbox from top-left corner (x, y) and width, height.
+
+        Args:
+            x (float): Top-left x coordinate (pixel units).
+            y (float): Top-left y coordinate (pixel units).
+            w (float): Bounding box width (pixel units).
+            h (float): Bounding box height (pixel units).
+            imsize (tuple[int, int]): Image size as (width, height). Required for clipping.
+
+        Returns:
+            Bbox: Bounding box object with coordinates clipped to image boundaries.
+
+        Examples:
+            >>> bbox = Bbox.from_xywh(10, 20, 100, 50, imsize=(640, 480))
+            >>> bbox.to_xyxy()
+            (10, 20, 110, 70)
+        """
         y_min, x_min, y_max, x_max = _clip_coords(y, x, y + h, x + w, imsize)
         return cls(y_min, x_min, y_max, x_max, imsize)
 
@@ -76,7 +104,23 @@ class Bbox:
         y2: float,
         imsize: _ImgSize,
     ) -> Bbox:
-        """Create bbox from top-left (x1, y1) and bottom-right (x2, y2) corners. imsize is required."""
+        """Create bbox from top-left and bottom-right corners.
+
+        Args:
+            x1 (float): Top-left x coordinate (pixel units).
+            y1 (float): Top-left y coordinate (pixel units).
+            x2 (float): Bottom-right x coordinate (pixel units).
+            y2 (float): Bottom-right y coordinate (pixel units).
+            imsize (tuple[int, int]): Image size as (width, height). Required for clipping.
+
+        Returns:
+            Bbox: Bounding box object with coordinates clipped to image boundaries.
+
+        Examples:
+            >>> bbox = Bbox.from_xyxy(10, 20, 110, 70, imsize=(640, 480))
+            >>> bbox.width
+            100.0
+        """
         y_min, x_min, y_max, x_max = _clip_coords(y1, x1, y2, x2, imsize)
         return cls(y_min, x_min, y_max, x_max, imsize)
 
@@ -90,7 +134,23 @@ class Bbox:
         h: float,
         imsize: _ImgSize,
     ) -> Bbox:
-        """Create bbox from center (cx, cy) and width, height. imsize is required."""
+        """Create bbox from center coordinates and width, height.
+
+        Args:
+            cx (float): Center x coordinate (pixel units).
+            cy (float): Center y coordinate (pixel units).
+            w (float): Bounding box width (pixel units).
+            h (float): Bounding box height (pixel units).
+            imsize (tuple[int, int]): Image size as (width, height). Required for clipping.
+
+        Returns:
+            Bbox: Bounding box object with coordinates clipped to image boundaries.
+
+        Examples:
+            >>> bbox = Bbox.from_cxcywh(60, 45, 100, 50, imsize=(640, 480))
+            >>> bbox.to_cxcywh()
+            (60.0, 45.0, 100.0, 50.0)
+        """
         half_w = w / 2.0
         half_h = h / 2.0
         y_min, x_min, y_max, x_max = _clip_coords(cy - half_h, cx - half_w, cy + half_h, cx + half_w, imsize)
@@ -106,7 +166,23 @@ class Bbox:
         y2r: float,
         imsize: _ImgSize,
     ) -> Bbox:
-        """Create bbox from normalized coordinates [0, 1]. imsize is required."""
+        """Create bbox from normalized top-left and bottom-right corners in range [0, 1].
+
+        Args:
+            x1r (float): Normalized top-left x coordinate [0, 1].
+            y1r (float): Normalized top-left y coordinate [0, 1].
+            x2r (float): Normalized bottom-right x coordinate [0, 1].
+            y2r (float): Normalized bottom-right y coordinate [0, 1].
+            imsize (tuple[int, int]): Image size as (width, height). Required for denormalization and clipping.
+
+        Returns:
+            Bbox: Bounding box object with pixel coordinates.
+
+        Examples:
+            >>> bbox = Bbox.from_xyxyr(0.0, 0.0, 0.5, 0.5, imsize=(640, 480))
+            >>> bbox.to_xyxy()
+            (0.0, 0.0, 320.0, 240.0)
+        """
         x1 = x1r * imsize[0]
         y1 = y1r * imsize[1]
         x2 = x2r * imsize[0]
@@ -124,7 +200,23 @@ class Bbox:
         hr: float,
         imsize: _ImgSize,
     ) -> Bbox:
-        """Create bbox from normalized coordinates [0, 1]. imsize is required."""
+        """Create bbox from normalized top-left corner and dimensions in range [0, 1].
+
+        Args:
+            xr (float): Normalized top-left x coordinate [0, 1].
+            yr (float): Normalized top-left y coordinate [0, 1].
+            wr (float): Normalized width [0, 1].
+            hr (float): Normalized height [0, 1].
+            imsize (tuple[int, int]): Image size as (width, height). Required for denormalization and clipping.
+
+        Returns:
+            Bbox: Bounding box object with pixel coordinates.
+
+        Examples:
+            >>> bbox = Bbox.from_xywhr(0.0, 0.0, 0.5, 0.5, imsize=(640, 480))
+            >>> bbox.width
+            320.0
+        """
         x = xr * imsize[0]
         y = yr * imsize[1]
         w = wr * imsize[0]
@@ -142,7 +234,23 @@ class Bbox:
         hr: float,
         imsize: _ImgSize,
     ) -> Bbox:
-        """Create bbox from normalized center and dimensions [0, 1]. imsize is required."""
+        """Create bbox from normalized center and dimensions in range [0, 1].
+
+        Args:
+            cxr (float): Normalized center x coordinate [0, 1].
+            cyr (float): Normalized center y coordinate [0, 1].
+            wr (float): Normalized width [0, 1].
+            hr (float): Normalized height [0, 1].
+            imsize (tuple[int, int]): Image size as (width, height). Required for denormalization and clipping.
+
+        Returns:
+            Bbox: Bounding box object with pixel coordinates.
+
+        Examples:
+            >>> bbox = Bbox.from_cxcywhr(0.25, 0.25, 0.5, 0.5, imsize=(640, 480))
+            >>> bbox.to_cxcywh()
+            (80.0, 60.0, 320.0, 240.0)
+        """
         cx = cxr * imsize[0]
         cy = cyr * imsize[1]
         w = wr * imsize[0]
@@ -155,38 +263,70 @@ class Bbox:
 
     @property
     def width(self) -> float:
+        """Width of the bounding box in pixels.
+
+        Returns:
+            float: Width calculated as x_max - x_min.
+        """
+        
         return self.x_max - self.x_min
 
 
     @property
     def height(self) -> float:
+        """Height of the bounding box in pixels.
+
+        Returns:
+            float: Height calculated as y_max - y_min.
+        """
         return self.y_max - self.y_min
 
 
     @property
     def area(self) -> float:
+        """Area of the bounding box in square pixels.
+
+        Returns:
+            float: Area calculated as width × height.
+        """
         return float(self.width * self.height)
 
 
     def to_xyxy(self) -> tuple[float, float, float, float]:
-        """Convert to (x1, y1, x2, y2) format."""
+        """Convert to (x1, y1, x2, y2) format.
+
+        Returns:
+            tuple[float, float, float, float]: Top-left (x1, y1) and bottom-right (x2, y2) coordinates.
+        """
         return (self.x_min, self.y_min, self.x_max, self.y_max)
 
 
     def to_xywh(self) -> tuple[float, float, float, float]:
-        """Convert to (x, y, w, h) format."""
+        """Convert to (x, y, w, h) format.
+
+        Returns:
+            tuple[float, float, float, float]: Top-left (x, y) and dimensions (width, height).
+        """
         return (self.x_min, self.y_min, self.width, self.height)
     
     
     def to_cxcywh(self) -> tuple[float, float, float, float]:
-        """Convert to (cx, cy, w, h) format."""
+        """Convert to (cx, cy, w, h) format.
+
+        Returns:
+            tuple[float, float, float, float]: Center (cx, cy) and dimensions (width, height).
+        """
         cx = (self.x_min + self.x_max) / 2.0
         cy = (self.y_min + self.y_max) / 2.0
         return (cx, cy, self.width, self.height)
 
     
     def to_xyxyr(self) -> tuple[float, float, float, float]:
-        """Convert to normalized (x1, y1, x2, y2) format in range [0, 1]."""
+        """Convert to normalized (x1, y1, x2, y2) format in range [0, 1].
+
+        Returns:
+            tuple[float, float, float, float]: Normalized coordinates [0, 1].
+        """
         x1r = self.x_min / self.imsize[0]
         y1r = self.y_min / self.imsize[1]
         x2r = self.x_max / self.imsize[0]
@@ -195,7 +335,11 @@ class Bbox:
 
     
     def to_xywhr(self) -> tuple[float, float, float, float]:
-        """Convert to normalized (x, y, w, h) format in range [0, 1]."""
+        """Convert to normalized (x, y, w, h) format in range [0, 1].
+
+        Returns:
+            tuple[float, float, float, float]: Normalized coordinates and dimensions [0, 1].
+        """
         xr = self.x_min / self.imsize[0]
         yr = self.y_min / self.imsize[1]
         wr = self.width / self.imsize[0]
@@ -204,7 +348,11 @@ class Bbox:
     
     
     def to_cxcywhr(self) -> tuple[float, float, float, float]:
-        """Convert to normalized (cx, cy, w, h) format in range [0, 1]."""
+        """Convert to normalized (cx, cy, w, h) format in range [0, 1].
+
+        Returns:
+            tuple[float, float, float, float]: Normalized center and dimensions [0, 1].
+        """
         cxr = (self.x_min + self.x_max) / 2.0 / self.imsize[0]
         cyr = (self.y_min + self.y_max) / 2.0 / self.imsize[1]
         wr = self.width / self.imsize[0]
@@ -214,21 +362,42 @@ class Bbox:
     
     @staticmethod
     def xyxy2xywh(xyxy: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-        """Convert (x1, y1, x2, y2) to (x, y, w, h)."""
+        """Convert (x1, y1, x2, y2) to (x, y, w, h).
+
+        Args:
+            xyxy (tuple[float, float, float, float]): Corner coordinates (x1, y1, x2, y2).
+
+        Returns:
+            tuple[float, float, float, float]: Top-left and dimensions (x, y, w, h).
+        """
         x1, y1, x2, y2 = xyxy
         return (x1, y1, x2 - x1, y2 - y1)
     
     
     @staticmethod
     def xywh2xyxy(xywh: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-        """Convert (x, y, w, h) to (x1, y1, x2, y2)."""
+        """Convert (x, y, w, h) to (x1, y1, x2, y2).
+
+        Args:
+            xywh (tuple[float, float, float, float]): Top-left and dimensions (x, y, w, h).
+
+        Returns:
+            tuple[float, float, float, float]: Corner coordinates (x1, y1, x2, y2).
+        """
         x, y, w, h = xywh
         return (x, y, x + w, y + h)
 
     
     @staticmethod
     def xywh2cxcywh(xywh: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-        """Convert (x, y, w, h) to (cx, cy, w, h)."""
+        """Convert (x, y, w, h) to (cx, cy, w, h).
+
+        Args:
+            xywh (tuple[float, float, float, float]): Top-left and dimensions (x, y, w, h).
+
+        Returns:
+            tuple[float, float, float, float]: Center and dimensions (cx, cy, w, h).
+        """
         x, y, w, h = xywh
         cx = x + w / 2.0
         cy = y + h / 2.0
@@ -237,7 +406,14 @@ class Bbox:
     
     @staticmethod
     def cxcywh2xywh(cxcywh: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-        """Convert (cx, cy, w, h) to (x, y, w, h)."""
+        """Convert (cx, cy, w, h) to (x, y, w, h).
+
+        Args:
+            cxcywh (tuple[float, float, float, float]): Center and dimensions (cx, cy, w, h).
+
+        Returns:
+            tuple[float, float, float, float]: Top-left and dimensions (x, y, w, h).
+        """
         cx, cy, w, h = cxcywh
         x = cx - w / 2.0
         y = cy - h / 2.0
@@ -246,7 +422,14 @@ class Bbox:
     
     @staticmethod
     def xyxy2cxcywh(xyxy: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-        """Convert (x1, y1, x2, y2) to (cx, cy, w, h)."""
+        """Convert (x1, y1, x2, y2) to (cx, cy, w, h).
+
+        Args:
+            xyxy (tuple[float, float, float, float]): Corner coordinates (x1, y1, x2, y2).
+
+        Returns:
+            tuple[float, float, float, float]: Center and dimensions (cx, cy, w, h).
+        """
         x1, y1, x2, y2 = xyxy
         cx = (x1 + x2) / 2.0
         cy = (y1 + y2) / 2.0
@@ -257,7 +440,14 @@ class Bbox:
     
     @staticmethod
     def cxcywh2xyxy(cxcywh: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-        """Convert (cx, cy, w, h) to (x1, y1, x2, y2)."""
+        """Convert (cx, cy, w, h) to (x1, y1, x2, y2).
+
+        Args:
+            cxcywh (tuple[float, float, float, float]): Center and dimensions (cx, cy, w, h).
+
+        Returns:
+            tuple[float, float, float, float]: Corner coordinates (x1, y1, x2, y2).
+        """
         cx, cy, w, h = cxcywh
         half_w = w / 2.0
         half_h = h / 2.0
@@ -270,20 +460,49 @@ class Bbox:
     
     @staticmethod
     def xyxyr2xywhr(xyxyr: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-        """Convert normalized (x1, y1, x2, y2) to normalized (x, y, w, h)."""
+        """Convert normalized (x1, y1, x2, y2) to normalized (x, y, w, h).
+
+        Args:
+            xyxyr (tuple[float, float, float, float]): Normalized corner coordinates [0, 1].
+
+        Returns:
+            tuple[float, float, float, float]: Normalized top-left and dimensions [0, 1].
+        """
         x1r, y1r, x2r, y2r = xyxyr
         return (x1r, y1r, x2r - x1r, y2r - y1r)
     
     
     @staticmethod
     def xywhr2xyxyr(xywhr: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-        """Convert normalized (x, y, w, h) to normalized (x1, y1, x2, y2)."""
+        """Convert normalized (x, y, w, h) to normalized (x1, y1, x2, y2).
+
+        Args:
+            xywhr (tuple[float, float, float, float]): Normalized top-left and dimensions [0, 1].
+
+        Returns:
+            tuple[float, float, float, float]: Normalized corner coordinates [0, 1].
+        """
         xr, yr, wr, hr = xywhr
         return (xr, yr, xr + wr, yr + hr)
 
 
 @dataclass
 class Segm:
+    """Segmentation representation supporting mask, RLE, and polygon formats.
+    
+    Flexible representation that can internally store segmentation in any format
+    (binary mask, RLE, or polygons) and convert on-demand. Only one format is required
+    at construction; others are generated lazily.
+    
+    Args:
+        _mask (np.ndarray | None): Binary mask array of shape (height, width). Default None.
+        _rle (dict | None): COCO RLE format with 'counts' and 'size' keys. Default None.
+        _polygons (list[list[float]] | None): List of polygon coordinates. Default None.
+        _imsize (tuple[int, int] | None): Image size as (width, height). Default None.
+    
+    Raises:
+        ValueError: If no segmentation format provided or mask shape doesn't match imsize.
+    """
     _mask: _MaskArray | None = field(default=None, repr=False)
     _rle: _RLE | None = field(default=None, repr=False)
     _polygons: _Polygons | None = field(default=None, repr=False)
@@ -318,6 +537,20 @@ class Segm:
         cls,
         mask: np.typing.ArrayLike
     ) -> Segm:
+        """Create Segm from a binary mask array.
+        
+        Args:
+            mask (np.typing.ArrayLike): Binary mask array of shape (height, width).
+            
+        Returns:
+            Segm: Segmentation object initialized with mask.
+            
+        Examples:
+            >>> mask = np.random.rand(100, 100) > 0.5
+            >>> segm = Segm.from_mask(mask)
+            >>> segm.area
+            5000.0
+        """
         mask_array = np.asarray(mask, dtype=bool)
         return cls(_mask=mask_array, _imsize=(mask_array.shape[1], mask_array.shape[0]))
 
@@ -329,6 +562,23 @@ class Segm:
         *,
         imsize: _ImgSize | None = None,
     ) -> Segm:
+        """Create Segm from RLE representation.
+        
+        Args:
+            rle (dict): COCO RLE format dictionary with 'counts' and optional 'size' keys.
+            imsize (tuple[int, int] | None): Image size (width, height). Required if RLE has no size. Default None.
+            
+        Returns:
+            Segm: Segmentation object initialized with RLE.
+            
+        Raises:
+            ValueError: If neither RLE nor imsize provides image dimensions.
+            
+        Examples:
+            >>> rle = {'size': [100, 100], 'counts': b'...'}
+            >>> segm = Segm.from_rle(rle)
+        """
+        
         rel_size = rle.get("size")
         if rel_size is not None:
             # RLE size is [height, width], but imsize should be (width, height)
@@ -337,7 +587,12 @@ class Segm:
         if imsize is None:
             raise ValueError("imsize is required when rle has no size.")
 
-        return cls(_rle=dict(rle), _imsize=imsize)
+        # Normalize RLE dict: convert bytes in 'counts' to string for JSON serialization
+        normalized_rle = dict(rle)
+        if isinstance(normalized_rle.get("counts"), bytes):
+            normalized_rle["counts"] = normalized_rle["counts"].decode("ascii")
+        
+        return cls(_rle=normalized_rle, _imsize=imsize)
 
 
     @classmethod
@@ -345,24 +600,59 @@ class Segm:
         cls,
         polygons: _Polygons,
         *,
-        imsize: _ImgSize | None = None,
+        imsize: _ImgSize,
     ) -> Segm:
+        """Create Segm from polygon representation.
+        
+        Args:
+            polygons (list[list[float]]): List of polygons, each a flat list of (x, y) coordinates.
+            imsize (tuple[int, int]): Image size (width, height). Required.
+            
+        Returns:
+            Segm: Segmentation object initialized with polygons.
+            
+        Raises:
+            ValueError: If imsize is not provided.
+            
+        Examples:
+            >>> polygons = [[10, 10, 100, 10, 100, 100, 10, 100]]
+            >>> segm = Segm.from_polygons(polygons, imsize=(256, 256))
+        """
         return cls(_polygons=[list(poly) for poly in polygons], _imsize=imsize)
 
 
     @property
     def size(self) -> _ImgSize:
+        """Image size (width, height) associated with the segmentation.
+        
+        Returns:
+            tuple[int, int]: Image size as (width, height).
+        """
         return self._imsize
     
     
     @property
     def area(self) -> float:
+        """Area of the segmentation in pixels.
+        
+        Returns:
+            float: Number of pixels where mask is True.
+        """
         return float(np.sum(self.to_mask()))
 
 
     def to_mask(
         self,
     ) -> _MaskArray:
+        """Convert to binary mask representation.
+        
+        Returns:
+            np.ndarray: Binary mask of shape (height, width) with dtype bool.
+            
+        Examples:
+            >>> segm = Segm.from_mask(mask)
+            >>> converted_mask = segm.to_mask()
+        """
         if self._mask is None:
             if self._rle is not None:
                 self._mask = self._rle_to_mask(self._rle)
@@ -378,6 +668,17 @@ class Segm:
         *,
         compressed: bool = True
     ) -> _RLE:
+        """Convert to RLE representation.
+        
+        Args:
+            compressed (bool): Use compressed format. Uncompressed not supported. Default True.
+            
+        Returns:
+            dict: COCO RLE format with 'size' and 'counts' keys.
+            
+        Raises:
+            NotImplementedError: If compressed=False.
+        """
         if self._rle is None:
             self._rle = self._mask_to_rle(self.to_mask(), compressed=compressed)
         return copy.deepcopy(self._rle)
@@ -386,6 +687,15 @@ class Segm:
     def to_polygons(
         self
     ) -> _Polygons:
+        """Convert to polygon representation.
+        
+        Returns:
+            list[list[float]]: List of polygons, each a flat list of (x, y) coordinates.
+            
+        Examples:
+            >>> segm = Segm.from_mask(mask)
+            >>> polygons = segm.to_polygons()
+        """
         if self._polygons is None:
             self._polygons = self._mask_to_polygons(self.to_mask())
         polygons = [poly.copy() for poly in self._polygons]
@@ -445,7 +755,28 @@ class Segm:
 
 
 
-    def to_dict(self, *, format: str = "rle") -> dict[str, typing.Any]:
+    def to_dict(
+        self,
+        *,
+        format: str = "rle"
+    ) -> dict[str, typing.Any]:
+        """Convert Segm to a dictionary representation in the specified format.
+        
+        Args:
+            format (str): Output format: 'mask', 'rle', 'polygon', or 'polygons'. Default 'rle'.
+            
+        Returns:
+            dict: Dictionary with keys 'width', 'height', 'area', and format-specific key.
+            
+        Raises:
+            ValueError: If format not in ['mask', 'rle', 'polygon', 'polygons'].
+            
+        Examples:
+            >>> segm = Segm.from_mask(mask)
+            >>> d = segm.to_dict(format='rle')
+            >>> d.keys()
+            dict_keys(['width', 'height', 'area', 'rle'])
+        """    
         data: dict[str, typing.Any] = {
             "width": self._imsize[0],
             "height": self._imsize[1],
@@ -465,6 +796,17 @@ class Segm:
 
 @dataclass
 class InstanceAnnotation:
+    """Represents an instance annotation with label, bounding box, segmentation, and score.
+    
+    Combines various annotation types (label, bbox, segmentation) with optional confidence score.
+    Provides conversion to dictionary representations with flexible format selection.
+    
+    Args:
+        label (str): Class label name.
+        bbox (Bbox | None): Bounding box annotation. Default None.
+        segm (Segm | None): Segmentation annotation. Default None.
+        score (float | None): Confidence score [0, 1]. Default None.
+    """
     label: str
     bbox: Bbox | None = None
     segm: Segm | None = None
@@ -472,6 +814,15 @@ class InstanceAnnotation:
  
     @property
     def area(self) -> float | None:
+        """Area of the annotation in pixels.
+        
+        Returns from segmentation if available, otherwise from bounding box.
+        Returns None if neither bbox nor segm are present.
+        
+        Returns:
+            float | None: Area in square pixels or None.
+        """
+        
         if self.segm is not None:
             return self.segm.area
         if self.bbox is not None:
@@ -485,6 +836,24 @@ class InstanceAnnotation:
         bbox_format: str = "xyxy",
         segm_format: str = "rle"
     ) -> dict[str, typing.Any]:
+        """Convert InstanceAnnotation to a dictionary representation with specified formats.
+        
+        Args:
+            bbox_format (str): Bounding box format: 'xyxy', 'xywh', or 'cxcywh'. Default 'xyxy'.
+            segm_format (str): Segmentation format: 'rle', 'polygon'/'polygons', or 'mask'. Default 'rle'.
+            
+        Returns:
+            dict: Dictionary with keys 'label', 'bbox', 'segm', 'score', 'area'.
+            
+        Raises:
+            ValueError: If bbox_format or segm_format not supported.
+            
+        Examples:
+            >>> ann = InstanceAnnotation(label='cat', bbox=bbox, score=0.95)
+            >>> d = ann.to_dict()
+            >>> d['label']
+            'cat'
+        """
         if bbox_format == "xyxy":
             bbox = self.bbox.to_xyxy() if self.bbox is not None else None
         elif bbox_format == "xywh":
@@ -514,20 +883,48 @@ class InstanceAnnotation:
 
 @dataclass
 class ImageRecord:
+    """Represents an image record with source path and instance annotations.
+    
+    Manages a single image with its associated annotations (bounding boxes, segmentations).
+    Validates all annotations against image dimensions. Supports drawing annotations and
+    serialization to various formats.
+    
+    Args:
+        source (str | os.PathLike): Path to image file.
+        annotations (list[InstanceAnnotation]): List of annotations. Default empty list.
+        size (tuple[int, int] | None): Image dimensions as (width, height). If provided, skips reading file.
+        
+    Attributes:
+        source (pathlib.Path): Image file path.
+        size (tuple[int, int]): Image dimensions as (width, height).
+        annotations (list[InstanceAnnotation]): List of annotations.
+    """
     source: str | os.PathLike[str]
     annotations: list[InstanceAnnotation] = field(default_factory=list)
+    size: tuple[int, int] | None = None
 
 
     def __post_init__(self) -> None:
-        im = cvtk.io.imread(self.source)
+        # If size is provided, skip reading the file
+        if self.size is None:
+            im = cvtk.io.imread(self.source)
+            self.size = im.size
 
         self.source = pathlib.Path(self.source)
-        self.size = im.size
         self.annotations = list(self.annotations)
 
         self._validate_annotations()
 
     def add_annotation(self, annotation: InstanceAnnotation) -> None:
+        """Add an InstanceAnnotation to the ImageRecord after validation.
+        
+        Args:
+            annotation (InstanceAnnotation): Annotation to add.
+            
+        Raises:
+            TypeError: If annotation is not InstanceAnnotation.
+            ValueError: If annotation coordinates are outside image or bbox has zero area.
+        """
         if not isinstance(annotation, InstanceAnnotation):
             raise TypeError("annotation must be an InstanceAnnotation.")
 
@@ -536,6 +933,7 @@ class ImageRecord:
 
 
     def _validate_annotations(self) -> None:
+        """Validate all annotations in the ImageRecord."""
         for annotation in self.annotations:
             self._validate_annotation(annotation)
 
@@ -568,6 +966,17 @@ class ImageRecord:
     
 
     def to_dict(self) -> dict[str, typing.Any]:
+        """Convert ImageRecord to a dictionary representation.
+        
+        Returns:
+            dict: Dictionary with keys 'source', 'size', 'annotations'.
+            
+        Examples:
+            >>> record = ImageRecord(source='image.jpg')
+            >>> d = record.to_dict()
+            >>> d.keys()
+            dict_keys(['source', 'size', 'annotations'])
+        """
         return {
             "source": str(self.source),
             "size": self.size,
@@ -585,26 +994,31 @@ class ImageRecord:
         font: PIL.ImageFont.ImageFont | None = None,
         colors: dict[str, list[int, int, int]] | None = None,
     ) -> PIL.Image.Image:
-        """Draw annotations on an image
+        """Draw annotations on an image.
+        
+        Visualizes bounding boxes, segmentation masks, and labels on the image.
+        Supports multiple rendering layers that can be combined.
         
         Args:
-            layers: str | list[str]: The layers to draw. Can be a single layer or a list of layers. 
-                Valid layers: 'bbox' (bounding boxes), 'segm' (segmentation polygons), 
-                'mask' (colored mask with black background), 'overlay' (mask blended on original image).
-                Default is 'bbox'.
-            output: str | os.PathLike[str] | None: The output file path to save the drawn image. 
-                If None, the image will not be saved. Default is None.
-            cutoff: float: The score cutoff for drawing annotations. Annotations with scores below 
-                this value will not be drawn. Default is 0.0.
-            label: bool: Whether to draw the label of the annotation. Default is True.
-            score: bool: Whether to draw the score of the annotation. Default is True.
-            font: PIL.ImageFont.ImageFont | None: The font to use for drawing the label and score. 
-                If None, a default font will be used. Default is None.
-            colors: dict[str, tuple] | None: A dictionary mapping label names to RGB colors. 
-                If None, random colors will be generated. Default is None.
+            layers (str|list[str]): Layers to draw. Valid: 'bbox', 'segm', 'mask', 'overlay'. Default 'bbox'.
+            output (str|os.PathLike|None): Save drawn image to this path. Default None (no save).
+            cutoff (float): Confidence cutoff. Skip annotations with score < cutoff. Default 0.0.
+            label (bool): Draw class label text. Default True.
+            score (bool): Draw confidence score with label. Default True.
+            font (PIL.ImageFont|None): Font for text. If None, default font used. Default None.
+            colors (dict|None): Map label names to RGB tuples (0-255). If None, random colors. Default None.
             
         Returns:
-            PIL.Image.Image: The drawn image.
+            PIL.Image.Image: Drawn image in RGB mode.
+            
+        Raises:
+            ValueError: If layer names not valid.
+            
+        Examples:
+            >>> record = ImageRecord(source='image.jpg')
+            >>> record.add_annotation(ann)
+            >>> drawn = record.draw(layers=['bbox'], output='drawn.jpg')
+            >>> drawn = record.draw(layers=['mask', 'overlay'], cutoff=0.5)
         """
         def get_color(col_dict: dict[str, tuple], label_name: str | None):
             key = label_name or "___UNDEF___"
@@ -697,6 +1111,14 @@ class ImageRecord:
 
 @dataclass
 class ImageDataset:
+    """Represents a dataset of images with their corresponding annotations.
+    
+    Manages multiple ImageRecord objects (images with annotations). Supports creating
+    datasets from COCO format, serialization to dictionary and COCO formats, and dataset operations.
+    
+    Args:
+        records (list[ImageRecord]): List of image records. Default empty list.
+    """
     records: list[ImageRecord] = field(default_factory=list)
 
     @classmethod
@@ -705,6 +1127,19 @@ class ImageDataset:
         coco_dict: dict[str, typing.Any],
         image_root: str | os.PathLike[str] | None = None,
     ) -> ImageDataset:
+        """Create an ImageDataset from a COCO-style dictionary.
+        
+        Args:
+            coco_dict (dict): COCO format dictionary with 'images', 'annotations', 'categories' keys.
+            image_root (str | os.PathLike | None): Root directory for image paths. Default None.
+            
+        Returns:
+            ImageDataset: Dataset initialized from COCO dictionary.
+            
+        Examples:
+            >>> coco_data = json.load(open('annotations.json'))
+            >>> dataset = ImageDataset.from_coco(coco_data, image_root='images/')
+        """
         images = coco_dict.get("images", [])
         annotations = coco_dict.get("annotations", [])
         categories = coco_dict.get("categories", [])
@@ -747,18 +1182,49 @@ class ImageDataset:
         return cls(records=dataset_records)
 
 
+    def __iter__(self):
+        """Make ImageDataset iterable over its records.
+        
+        Yields:
+            ImageRecord: Individual image records in the dataset.
+        """
+        return iter(self.records)
+
+
     @property
     def size(self) -> int:
+        """Return the number of image records in the dataset.
+        
+        Returns:
+            int: Number of images.
+        """
         return len(self.records)
     
 
     def append(self, image: ImageRecord) -> None:
+        """Append an ImageRecord to the dataset after validation.
+        
+        Args:
+            image (ImageRecord): Image record to append.
+            
+        Raises:
+            TypeError: If image is not ImageRecord.
+        """
         if not isinstance(image, ImageRecord):
             raise TypeError("image must be an ImageRecord.")
         self.records.append(image)
 
 
     def to_dict(self) -> dict[str, typing.Any]:
+        """Convert ImageDataset to a dictionary representation.
+        
+        Returns:
+            dict: Dictionary with 'records' key containing list of image dictionaries.
+            
+        Examples:
+            >>> dataset = ImageDataset(records=[...])
+            >>> d = dataset.to_dict()
+        """
         return {
             "records": [
                 record.to_dict() for record in self.records
@@ -770,6 +1236,20 @@ class ImageDataset:
         self,
         image_root: str | os.PathLike[str] | None = None
     ) -> dict[str, typing.Any]:
+        """Convert ImageDataset to a COCO-style dictionary.
+        
+        Args:
+            image_root (str | os.PathLike | None): Root directory for relative image paths. Default None.
+            
+        Returns:
+            dict: COCO format dictionary with 'images', 'annotations', 'categories' keys.
+            
+        Examples:
+            >>> dataset = ImageDataset.from_coco(coco_dict)
+            >>> coco_output = dataset.to_coco()
+            >>> with open('output.json', 'w') as f:
+            ...     json.dump(coco_output, f)
+        """
         coco_dict = {
             "images": [],
             "annotations": [],

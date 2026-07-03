@@ -1,8 +1,5 @@
 import os
-from cvtk import imlist, ImageDeck
-from cvtk.ml import generate_source
-from cvtk.ml.data import DataLabel
-from cvtk.ml.mmdetutils import ModuleCore, DataLabel, DataLoader, Dataset, DataPipeline, plot_trainlog
+import cvtk
 import unittest
 import testutils
 
@@ -13,16 +10,16 @@ class TestScript(unittest.TestCase):
         self.ws = testutils.set_ws('mmdet_script')
     
 
-    def __run_proc(self, task, vanilla, code_generator):
+    def __run_proc(self, code_generator, vanilla, task):
         module = 'vanilla' if vanilla else 'cvtk'
-        dpath = testutils.set_ws(f'mmdet_script__{task}_{module}_{code_generator}')
+        dpath = testutils.set_ws(os.path.join(self.ws, f'{module}_{code_generator}_{task}'))
         
         script = os.path.join(dpath, 'script.py')
         
-        if code_generator == 'source':
-            generate_source(script, task=task, vanilla=vanilla)
-        elif code_generator == 'cmd':
-            cmd_ = ['cvtk', 'create', '--task', task, '--script', script]
+        if code_generator == 'api':
+            cvtk.ml.deploy_model(script, backend='mmdet', task=task, vanilla=vanilla)
+        elif code_generator == 'script':
+            cmd_ = ['cvtk', 'deploy-model', '--backend', 'mmdet', '--task', task, '--script', script]
             if vanilla:
                 cmd_.append('--vanilla')
             testutils.run_cmd(cmd_)
@@ -42,147 +39,96 @@ class TestScript(unittest.TestCase):
     
 
     def test_det_cvtk_cmd(self):
-        self.__run_proc('det', False, 'cmd')
+        self.__run_proc('script', False, 'det')
 
 
     def test_det_cvtk_source(self):
-        self.__run_proc('det', False, 'source')
+        self.__run_proc('api', False, 'det')
 
 
     def test_det_mmdet_cmd(self):
-        self.__run_proc('det', True, 'cmd')
+        self.__run_proc('script', True, 'det')
 
 
     def test_det_mmdet_source(self):
-        self.__run_proc('det', True, 'source')
+        self.__run_proc('api', True, 'det')
 
 
     def test_segm_cvtk_source(self):
-        self.__run_proc('segm', False, 'source')
+        self.__run_proc('api', False, 'segm')
         
 
     def test_segm_mmdet_cmd(self):
-        self.__run_proc('segm', True, 'cmd')
-
-
-class TestDataset(unittest.TestCase):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def test_dataset_none(self):
-        dataset = Dataset(None, None, None)
-        self.assertEqual(dataset.cfg, None)
-
-    def test_dataset_list(self):
-        imgs = ['img_1.jpg', 'img_2.jpg', 'img_3.jpg']
-        dataset = Dataset(DataLabel(['tomato', 'eggplant', 'strawberry', 'cucumber']), imgs)
-        self.assertEqual(dataset.cfg['data_root'], imgs)
-
-    def test_dataset_str(self):
-        image_dpath = 'data/fruits/images'
-        dataset = Dataset(DataLabel(['leaf', 'root', 'flower']), image_dpath)
-        self.assertEqual(dataset.cfg['data_root'],
-                         os.path.join(os.path.dirname(__file__), image_dpath))
-        
-    def test_dataset_dict(self):
-        labels = ['tomato', 'eggplant', 'strawberry', 'cucumber']
-        data_dict = dict(
-            metainfo=dict(classes=labels),
-            type='CocoDataset',
-            pipeline=None,
-            data_root=''
-        )
-        dataset = Dataset(DataLabel(labels), data_dict)
-        self.assertEqual(dataset.cfg, data_dict)
-
-
-class TestDataLoader(unittest.TestCase):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-
-    def test_dataloader_none(self):
-        self.assertRaises(ValueError,
-                          DataLoader, None, phase='train')
-
-        dataloader = DataLoader(None, phase='valid')
-        self.assertEqual(dataloader.cfg,
-                         dict(
-                            val_dataloader=None,
-                            val_cfg=None,
-                            val_evaluator=None))
-
-        dataloader = DataLoader(None, phase='test')
-        self.assertEqual(dataloader.cfg,
-                         dict(
-                            test_dataloader=None,
-                            test_cfg=None,
-                            test_evaluator=None))
-
-        dataloader = DataLoader(None, phase='inference')
-        self.assertIsNotNone(dataloader.cfg)
+        self.__run_proc('script', True, 'segm')
 
 
 class TestMMDet(unittest.TestCase):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ws = testutils.set_ws('mmdet_mmdet')
+        self.ws = testutils.set_ws('mmdet_api')
         self.sample = testutils.data['det']['samples']
 
     
     def __inference(self, model, datalabel, data, output_dpath):
-        data = DataLoader(
-                    Dataset(datalabel, data, DataPipeline()),
+        data = cvtk.ml.mmdetutils.DataLoader(
+                    cvtk.ml.mmdetutils.Dataset(datalabel, data, 
+                                               cvtk.ml.mmdetutils.DataPipeline()),
                     phase='inference', batch_size=4, num_workers=8)
         pred_outputs = model.inference(data)
         for im in pred_outputs:
-            im.draw(format='bbox+segm',
+            im.draw(layers=['bbox', 'segm'],
                     output=output_dpath + os.path.basename(im.source))
 
 
     def __test_mmdetutils(self, label, train, valid=None, test=None, output_dpath=None, task='det', batch_size=4, num_workers=8):
         output_pfx = os.path.join(output_dpath, 'sb')
-        datalabel = DataLabel(label)
+        datalabel = cvtk.ml.data.DataLabel(label)
         if task == 'det':
-            model = ModuleCore(datalabel, "faster-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
+            model = cvtk.ml.mmdetutils.DetRunner(
+                datalabel, "faster-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
         else:
-            model = ModuleCore(datalabel, "mask-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
+            model = cvtk.ml.mmdetutils.DetRunner(
+                datalabel, "mask-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
 
         with_mask = False if task == 'det' else True
-        train = DataLoader(
-                    Dataset(datalabel, train,
-                            DataPipeline(is_train=True, with_bbox=True, with_mask=with_mask)),
+        train = cvtk.ml.mmdetutils.DataLoader(
+                    cvtk.ml.mmdetutils.Dataset(datalabel, train,
+                                               cvtk.ml.mmdetutils.DataPipeline(is_train=True, with_bbox=True, with_mask=with_mask)),
                     phase='train', batch_size=batch_size, num_workers=num_workers)
         if valid is not None:
-            valid = DataLoader(
-                        Dataset(datalabel, valid,
-                                DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
+            valid = cvtk.ml.mmdetutils.DataLoader(
+                        cvtk.ml.mmdetutils.Dataset(datalabel, valid,
+                                                   cvtk.ml.mmdetutils.DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
                         phase='valid', batch_size=batch_size, num_workers=num_workers)
         if test is not None:
-            test = DataLoader(
-                        Dataset(datalabel, test,
-                                DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
+            test = cvtk.ml.mmdetutils.DataLoader(
+                        cvtk.ml.mmdetutils.Dataset(datalabel, test,
+                                                   cvtk.ml.mmdetutils.DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
                         phase='test', batch_size=batch_size, num_workers=num_workers)
 
         model.train(train, valid, test, epoch=10)
         model.save(f'{output_pfx}.pth')
 
         if os.path.exists(f'{output_pfx}.train_stats.train.txt'):
-            plot_trainlog(f'{output_pfx}.train_stats.train.txt',
+            cvtk.viz.plot(f'{output_pfx}.train_stats.train.txt',
+                          x='epoch',
+                          y=['loss', 'loss_cls', 'loss_bbox', 'acc'],
                           output=f'{output_pfx}.train_stats.train.png')
         if os.path.exists(f'{output_pfx}.train_stats.valid.txt'):
-            plot_trainlog(f'{output_pfx}.train_stats.valid.txt',
+            cvtk.viz.plot(f'{output_pfx}.train_stats.valid.txt',
+                          x='step',
+                          y=['coco/bbox_mAP', 'coco/bbox_mAP_50'],
                           output=f'{output_pfx}.train_stats.valid.png')
 
         # inference
-        model = ModuleCore(datalabel, f'{output_pfx}.py', f'{output_pfx}.pth',
+        model = cvtk.ml.mmdetutils.DetRunner(datalabel, f'{output_pfx}.py', f'{output_pfx}.pth',
                           workspace=output_dpath)
         
         #  images from a folder
         self.__inference(model, datalabel, self.sample, os.path.join(output_dpath, 'd_'))
-        self.__inference(model, datalabel, imlist(self.sample), os.path.join(output_dpath, 'l_'))
-        self.__inference(model, datalabel, imlist(self.sample)[0], os.path.join(output_dpath, 'f_'))
+        self.__inference(model, datalabel, cvtk.io.imlist(self.sample), os.path.join(output_dpath, 'l_'))
+        self.__inference(model, datalabel, cvtk.io.imlist(self.sample)[0], os.path.join(output_dpath, 'f_'))
 
 
     def test_det_t_t_t(self):

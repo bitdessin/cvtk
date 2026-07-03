@@ -18,25 +18,25 @@ def train(
 
     datalabel = cvtk.ml.data.DataLabel(label)
     model = cvtk.ml.mmdetutils.DetRunner(
-        datalabel, "faster-rcnn_r101_fpn_1x_coco", None, workspace=temp_dpath)
+        datalabel, "mask-rcnn_r101_fpn_1x_coco", None, workspace=temp_dpath)
 
     train = cvtk.ml.mmdetutils.DataLoader(
                 cvtk.ml.mmdetutils.Dataset(datalabel, train,
-                        cvtk.ml.mmdetutils.DataPipeline(is_train=True, with_bbox=True, with_mask=False)),
+                        cvtk.ml.mmdetutils.DataPipeline(is_train=True, with_bbox=True, with_mask=True)),
                 phase='train',
                 batch_size=batch_size,
                 num_workers=num_workers)
     if valid is not None:
         valid = cvtk.ml.mmdetutils.DataLoader(
                     cvtk.ml.mmdetutils.Dataset(datalabel, valid,
-                            cvtk.ml.mmdetutils.DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
+                            cvtk.ml.mmdetutils.DataPipeline(is_train=False, with_bbox=True, with_mask=True)),
                     phase='valid',
                     batch_size=batch_size,
                     num_workers=num_workers)
     if test is not None:
         test = cvtk.ml.mmdetutils.DataLoader(
                     cvtk.ml.mmdetutils.Dataset(datalabel, test,
-                            cvtk.ml.mmdetutils.DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
+                            cvtk.ml.mmdetutils.DataPipeline(is_train=False, with_bbox=True, with_mask=True)),
                     phase='test',
                     batch_size=batch_size,
                     num_workers=num_workers)
@@ -56,10 +56,10 @@ def _plot_log(log_fpath):
     log_data = pd.read_csv(log_fpath, sep='\t', header=0, comment='#')
     if 'epoch' in log_data.columns:
         x = 'epoch'
-        y = ['loss', 'loss_cls', 'loss_bbox', ['acc']]
+        y = ['loss', 'loss_cls', 'loss_bbox', 'loss_mask', ['acc']]
     else:
         x = 'step'
-        y = ['coco/bbox_mAP', 'coco/bbox_mAP_50']
+        y = ['coco/bbox_mAP', 'coco/bbox_mAP_50', 'coco/segm_mAP', 'coco/segm_mAP_50']
     cvtk.viz.plot(log_fpath, x=x, y=y, 
                   output=os.path.splitext(log_fpath)[0] + '.png')    
 
@@ -77,13 +77,12 @@ def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
 
     for im in pred_outputs:
         random.seed(1)
-        im.draw(layers=['bbox'],
+        im.draw(layers=['bbox', 'segm'],
                 output=os.path.join(output, os.path.basename(im.source)))
     
     imdataset = cvtk.data.ImageDataset(pred_outputs)
     cocodict = imdataset.to_coco()
     cvtk.utils.save_json(cocodict, os.path.join(output, 'instances.coco.json'))
-    
 
 
 def _train(args):
@@ -130,9 +129,9 @@ Example Usage:
 
 python __SCRIPTNAME__ train \\
     --label ./data/strawberry/class.txt \\
-    --train ./data/strawberry/train/bbox.json \\
-    --valid ./data/strawberry/valid/bbox.json \\
-    --test ./data/strawberry/test/bbox.json \\
+    --train ./data/strawberry/train/segm.json \\
+    --valid ./data/strawberry/valid/segm.json \\
+    --test ./data/strawberry/test/segm.json \\
     --output_weights ./output/sb.pth
 
     
