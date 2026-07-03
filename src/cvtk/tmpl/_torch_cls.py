@@ -1,69 +1,116 @@
 import os
 import torch
-from cvtk.ml.data import DataLabel
-from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ModuleCore, plot_trainlog, plot_cm
+import cvtk
 
 
-def train(label, train, valid, test, input_weights, output_weights, batch_size=4, num_workers=8, epoch=10):
+def train(
+    label,
+    train,
+    valid,
+    test,
+    input_weights,
+    output_weights,
+    batch_size=4,
+    num_workers=8,
+    epoch=10
+):
     temp_dpath = os.path.splitext(output_weights)[0]
 
-    datalabel = DataLabel(label)
-    model = ModuleCore(datalabel, 'resnet18', input_weights, temp_dpath)
+    datalabel = cvtk.ml.data.DataLabel(label)
+    model = cvtk.ml.torchutils.ClsRunner(datalabel, 'resnet18', input_weights, temp_dpath)
     
-    train = DataLoader(
-                Dataset(datalabel, train, transform=DataTransform(224, is_train=True)),
-                batch_size=batch_size, num_workers=num_workers, shuffle=True)
+    train = cvtk.ml.torchutils.DataLoader(
+                cvtk.ml.torchutils.Dataset(datalabel,
+                                           train,
+                                           transform=cvtk.ml.torchutils.DataTransform(224, is_train=True)),
+                batch_size=batch_size,
+                num_workers=num_workers,
+                shuffle=True)
     if valid is not None:
-        valid = DataLoader(
-                    Dataset(datalabel, valid, transform=DataTransform(224, is_train=False)),
-                    batch_size=batch_size, num_workers=num_workers)
+        valid = cvtk.ml.torchutils.DataLoader(
+                    cvtk.ml.torchutils.Dataset(datalabel,
+                                               valid,
+                                               transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                    batch_size=batch_size,
+                    num_workers=num_workers)
     if test is not None:
-        test = DataLoader(
-                    Dataset(datalabel, test, transform=DataTransform(224, is_train=False)),
-                    batch_size=batch_size, num_workers=num_workers)
+        test = cvtk.ml.torchutils.DataLoader(
+                    cvtk.ml.torchutils.Dataset(datalabel,
+                                               test,
+                                               transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                    batch_size=batch_size,
+                    num_workers=num_workers)
 
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.model.parameters(), lr=0.001)
     model.train(train, valid, test, epoch=epoch, optimizer=optimizer, criterion=criterion)
     model.save(output_weights)
 
-    plot_trainlog(os.path.splitext(output_weights)[0] + '.train_stats.txt',
-                  os.path.splitext(output_weights)[0] + '.train_stats.png')
-    plot_cm(os.path.splitext(output_weights)[0] + '.test_outputs.txt',
-            os.path.splitext(output_weights)[0] + '.test_outputs.cm.png')
+    cvtk.viz.plot(
+        os.path.splitext(output_weights)[0] + '.train_stats.txt',
+        x='epoch',
+        y=[['train_loss', 'valid_loss'], ['train_acc', 'valid_acc']],
+        output=os.path.splitext(output_weights)[0] + '.train_stats.png')
+    cvtk.viz.plot_cm(
+        os.path.splitext(output_weights)[0] + '.test_outputs.txt',
+        output=os.path.splitext(output_weights)[0] + '.test_outputs.cm.png')
 
 
-def test(label, data, model_weights, output, batch_size=4, num_workers=8):
+def test(
+    label,
+    data,
+    model_weights,
+    output,
+    batch_size=4,
+    num_workers=8
+):
     temp_dpath = os.path.splitext(model_weights)[0]
 
-    datalabel = DataLabel(label)
-    model = ModuleCore(datalabel, 'resnet18', model_weights, temp_dpath)
+    datalabel = cvtk.ml.data.DataLabel(label)
+    model = cvtk.ml.torchutils.ClsRunner(datalabel, 'resnet18', model_weights, temp_dpath)
 
-    test = DataLoader(
-                Dataset(datalabel, data, transform=DataTransform(224, is_train=False)),
-                batch_size=batch_size, num_workers=num_workers)
+    test = cvtk.ml.torchutils.DataLoader(
+                cvtk.ml.torchutils.Dataset(datalabel,
+                                           data,
+                                           transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                batch_size=batch_size,
+                num_workers=num_workers)
     
     test_stats = model.test(test)
+    
     with open(output, 'w') as fh:
         fh.write('# loss: {}\n'.format(test_stats['loss']))
         fh.write('# acc: {}\n'.format(test_stats['acc']))
         fh.write('\t'.join(['image', 'label'] + datalabel.labels) + '\n')
-        for x_, y_, p_ in zip(test_stats['dataset'].x, test_stats['dataset'].y, test_stats['probs']):
+        for x_, y_, p_ in zip(test_stats['dataset'].x, test_stats['dataset'].y, test_stats['scores']):
             fh.write('{}\t{}\t{}\n'.format(
                 x_,
                 datalabel.labels[y_],
                 '\t'.join([str(_) for _ in p_])))
+    
+    cvtk.viz.plot_cm(
+        output,
+        output=os.path.splitext(output)[0] + '.cm.png')
 
-
-def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
+def inference(
+    label,
+    data,
+    model_weights,
+    output,
+    batch_size=4,
+    num_workers=8
+):
     temp_dpath = os.path.splitext(output)[0]
 
-    datalabel = DataLabel(label)
-    model = ModuleCore(datalabel, 'resnet18', model_weights, temp_dpath)
+    datalabel = cvtk.ml.data.DataLabel(label)
+    model = cvtk.ml.torchutils.ClsRunner(datalabel, 'resnet18', model_weights, temp_dpath)
 
-    data = DataLoader(
-                Dataset(datalabel, data, transform=DataTransform(224, is_train=False)),
-                batch_size=batch_size, num_workers=num_workers)
+    data = cvtk.ml.torchutils.DataLoader(
+                cvtk.ml.torchutils.Dataset(datalabel,
+                                           data,
+                                           transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                batch_size=batch_size,
+                num_workers=num_workers)
     
     probs = model.inference(data)
     probs.to_csv(output, sep = '\t', header=True, index=True, index_label='image')
