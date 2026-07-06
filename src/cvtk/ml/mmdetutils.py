@@ -1075,5 +1075,27 @@ class DetRunner():
             if 'id' in image and 'file_name' in image:
                 image_name_map[image['id']] = image['file_name']
         return image_name_map
+
+
+class SegmRunner(DetRunner):
+    """Minimal instance-segmentation runner wrapper around DetRunner.
+
+    This class keeps all training/testing/inference logic from DetRunner and
+    only provides a task-specific alias for clearer API usage in segmentation
+    workflows.
+    """
+
+    def __init__(self,
+                 datalabel: cvtk.ml.data.DataLabel|str|list[str]|tuple[str],
+                 cfg: str|dict,
+                 weights: str|None=None,
+                 workspace=None,
+                 seed=None):
+        super().__init__(datalabel=datalabel,
+                         cfg=cfg,
+                         weights=weights,
+                         workspace=workspace,
+                         seed=seed)
+        self.task_type = 'segm'
     
 

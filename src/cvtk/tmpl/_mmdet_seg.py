@@ -17,7 +17,7 @@ def train(
     temp_dpath = os.path.splitext(output_weights)[0]
 
     datalabel = cvtk.ml.data.DataLabel(label)
-    model = cvtk.ml.mmdetutils.DetRunner(
+    model = cvtk.ml.mmdetutils.SegmRunner(
         datalabel, "mask-rcnn_r101_fpn_1x_coco", None, workspace=temp_dpath)
 
     train = cvtk.ml.mmdetutils.DataLoader(
@@ -67,7 +67,7 @@ def _plot_log(log_fpath):
 def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
     datalabel = cvtk.ml.data.DataLabel(label)
     
-    model = cvtk.ml.mmdetutils.DetRunner(datalabel, os.path.splitext(model_weights)[0] + '.py', model_weights, workspace=output)
+    model = cvtk.ml.mmdetutils.SegmRunner(datalabel, os.path.splitext(model_weights)[0] + '.py', model_weights, workspace=output)
 
     data = cvtk.ml.mmdetutils.DataLoader(
                 cvtk.ml.mmdetutils.Dataset(datalabel, data, cvtk.ml.mmdetutils.DataPipeline()),
