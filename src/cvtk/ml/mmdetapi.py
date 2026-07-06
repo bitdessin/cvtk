@@ -432,7 +432,21 @@ class DetRunner():
         if isinstance(cfg, str):
             if not os.path.exists(cfg):
                 cache_dpath = os.path.join(os.path.expanduser('~'), '.cache', 'mim')
-                chk = mim.commands.download(package='mmdet', configs=[cfg])[0]
+                download_errs = []
+                chk = None
+                for pkg_name in ('onedl-mmdetection', 'mmdet'):
+                    try:
+                        chk = mim.commands.download(package=pkg_name, configs=[cfg])[0]
+                        break
+                    except Exception as exc:
+                        download_errs.append(f'{pkg_name}: {exc}')
+
+                if chk is None:
+                    raise ValueError(
+                        'Failed to download model config/checkpoint from MIM for '
+                        f'cfg={cfg}. Tried packages: onedl-mmdetection, mmdet. '
+                        f'Errors: {" | ".join(download_errs)}'
+                    )
                 cfg = os.path.join(cache_dpath, cfg + '.py')
                 chk = os.path.join(cache_dpath, chk)
             cfg = mmengine.config.Config.fromfile(cfg)
