@@ -84,9 +84,9 @@ class TestTorchUtils(unittest.TestCase):
 
     def test_iterable_dataset_len(self):
         datalabel = cvtk.ml.data.DataLabel(self.label)
-        dataset = cvtk.ml.torchutils.Dataset(datalabel,
+        dataset = cvtk.ml.torchapi.Dataset(datalabel,
                                              self.train,
-                                             transform=cvtk.ml.torchutils.DataTransform(224, is_train=False),
+                                             transform=cvtk.ml.torchapi.DataTransform(224, is_train=False),
                                              stream_data=True)
 
         with open(self.train, 'r') as fh:
@@ -96,10 +96,10 @@ class TestTorchUtils(unittest.TestCase):
 
 
     def __inference(self, model, datalabel, data, output_fpath):
-        data = cvtk.ml.torchutils.DataLoader(
-                cvtk.ml.torchutils.Dataset(datalabel,
+        data = cvtk.ml.torchapi.DataLoader(
+                cvtk.ml.torchapi.Dataset(datalabel,
                                            data,
-                                           transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                                           transform=cvtk.ml.torchapi.DataTransform(224, is_train=False)),
                 batch_size=2,
                 num_workers=8)
         probs = model.inference(data)
@@ -108,31 +108,31 @@ class TestTorchUtils(unittest.TestCase):
 
 
 
-    def __test_torchutils(self, train, valid=None, test=None, output=None, batch_size=8, num_workers=8):
+    def __test_torchapi(self, train, valid=None, test=None, output=None, batch_size=8, num_workers=8):
         temp_dpath = os.path.splitext(output)[0]
 
         datalabel = cvtk.ml.data.DataLabel(self.label)
-        model = cvtk.ml.torchutils.ClsRunner(datalabel, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
+        model = cvtk.ml.torchapi.ClsRunner(datalabel, 'resnet18', 'ResNet18_Weights.DEFAULT', temp_dpath)
 
-        train = cvtk.ml.torchutils.DataLoader(
-                cvtk.ml.torchutils.Dataset(datalabel,
+        train = cvtk.ml.torchapi.DataLoader(
+                cvtk.ml.torchapi.Dataset(datalabel,
                                            train,
-                                           transform=cvtk.ml.torchutils.DataTransform(224, is_train=True)),
+                                           transform=cvtk.ml.torchapi.DataTransform(224, is_train=True)),
                 batch_size=batch_size,
                 num_workers=num_workers,
                 shuffle=True)
         if valid is not None:
-            valid = cvtk.ml.torchutils.DataLoader(
-                        cvtk.ml.torchutils.Dataset(datalabel,
+            valid = cvtk.ml.torchapi.DataLoader(
+                        cvtk.ml.torchapi.Dataset(datalabel,
                                                    valid,
-                                                   transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                                                   transform=cvtk.ml.torchapi.DataTransform(224, is_train=False)),
                         batch_size=batch_size,
                         num_workers=num_workers)
         if test is not None:
-            test = cvtk.ml.torchutils.DataLoader(
-                        cvtk.ml.torchutils.Dataset(datalabel,
+            test = cvtk.ml.torchapi.DataLoader(
+                        cvtk.ml.torchapi.Dataset(datalabel,
                                                    test,
-                                                   transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                                                   transform=cvtk.ml.torchapi.DataTransform(224, is_train=False)),
                         batch_size=batch_size,
                         num_workers=num_workers)
 
@@ -150,26 +150,26 @@ class TestTorchUtils(unittest.TestCase):
                     os.path.splitext(output)[0] + '.test_outputs.cm.png')
             
 
-        model = cvtk.ml.torchutils.ClsRunner(datalabel, 'resnet18', output, temp_dpath)
+        model = cvtk.ml.torchapi.ClsRunner(datalabel, 'resnet18', output, temp_dpath)
         self.__inference(model, datalabel, self.sample, os.path.splitext(output)[0] + '.inference_results_dir.txt')
         self.__inference(model, datalabel, cvtk.io.imlist(self.sample), os.path.splitext(output)[0] + '.inference_results_list.txt')
         self.__inference(model, datalabel, cvtk.io.imlist(self.sample)[0], os.path.splitext(output)[0] + '.inference_results_single.txt')
 
 
-    def test_torchutils_t_f_f(self):
-        self.__test_torchutils(self.train, None, None,
+    def test_torchapi_t_f_f(self):
+        self.__test_torchapi(self.train, None, None,
                                os.path.join(self.ws, 'train', 'fruits.pth'))
 
-    def test_torchutils_t_t_f(self):
-        self.__test_torchutils(self.train, self.valid, None,
+    def test_torchapi_t_t_f(self):
+        self.__test_torchapi(self.train, self.valid, None,
                                os.path.join(self.ws, 'trainvalid', 'fruits.pth'))
 
-    def test_torchutils_t_f_t(self):
-        self.__test_torchutils(self.train, None, self.test,
+    def test_torchapi_t_f_t(self):
+        self.__test_torchapi(self.train, None, self.test,
                                os.path.join(self.ws, 'traintest', 'fruits.pth'))
 
-    def test_torchutils_t_t_t(self):
-        self.__test_torchutils(self.train, self.valid, self.test,
+    def test_torchapi_t_t_t(self):
+        self.__test_torchapi(self.train, self.valid, self.test,
                                os.path.join(self.ws, 'trainvalidtest', 'fruits.pth'))        
 
 

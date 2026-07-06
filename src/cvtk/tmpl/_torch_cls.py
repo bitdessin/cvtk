@@ -17,27 +17,27 @@ def train(
     temp_dpath = os.path.splitext(output_weights)[0]
 
     datalabel = cvtk.ml.data.DataLabel(label)
-    model = cvtk.ml.torchutils.ClsRunner(datalabel, 'resnet18', input_weights, temp_dpath)
+    model = cvtk.ml.torchapi.ClsRunner(datalabel, 'resnet18', input_weights, temp_dpath)
     
-    train = cvtk.ml.torchutils.DataLoader(
-                cvtk.ml.torchutils.Dataset(datalabel,
+    train = cvtk.ml.torchapi.DataLoader(
+                cvtk.ml.torchapi.Dataset(datalabel,
                                            train,
-                                           transform=cvtk.ml.torchutils.DataTransform(224, is_train=True)),
+                                           transform=cvtk.ml.torchapi.DataTransform(224, is_train=True)),
                 batch_size=batch_size,
                 num_workers=num_workers,
                 shuffle=True)
     if valid is not None:
-        valid = cvtk.ml.torchutils.DataLoader(
-                    cvtk.ml.torchutils.Dataset(datalabel,
+        valid = cvtk.ml.torchapi.DataLoader(
+                    cvtk.ml.torchapi.Dataset(datalabel,
                                                valid,
-                                               transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                                               transform=cvtk.ml.torchapi.DataTransform(224, is_train=False)),
                     batch_size=batch_size,
                     num_workers=num_workers)
     if test is not None:
-        test = cvtk.ml.torchutils.DataLoader(
-                    cvtk.ml.torchutils.Dataset(datalabel,
+        test = cvtk.ml.torchapi.DataLoader(
+                    cvtk.ml.torchapi.Dataset(datalabel,
                                                test,
-                                               transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                                               transform=cvtk.ml.torchapi.DataTransform(224, is_train=False)),
                     batch_size=batch_size,
                     num_workers=num_workers)
 
@@ -67,12 +67,12 @@ def test(
     temp_dpath = os.path.splitext(model_weights)[0]
 
     datalabel = cvtk.ml.data.DataLabel(label)
-    model = cvtk.ml.torchutils.ClsRunner(datalabel, 'resnet18', model_weights, temp_dpath)
+    model = cvtk.ml.torchapi.ClsRunner(datalabel, 'resnet18', model_weights, temp_dpath)
 
-    test = cvtk.ml.torchutils.DataLoader(
-                cvtk.ml.torchutils.Dataset(datalabel,
+    test = cvtk.ml.torchapi.DataLoader(
+                cvtk.ml.torchapi.Dataset(datalabel,
                                            data,
-                                           transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                                           transform=cvtk.ml.torchapi.DataTransform(224, is_train=False)),
                 batch_size=batch_size,
                 num_workers=num_workers)
     
@@ -103,12 +103,12 @@ def inference(
     temp_dpath = os.path.splitext(output)[0]
 
     datalabel = cvtk.ml.data.DataLabel(label)
-    model = cvtk.ml.torchutils.ClsRunner(datalabel, 'resnet18', model_weights, temp_dpath)
+    model = cvtk.ml.torchapi.ClsRunner(datalabel, 'resnet18', model_weights, temp_dpath)
 
-    data = cvtk.ml.torchutils.DataLoader(
-                cvtk.ml.torchutils.Dataset(datalabel,
+    data = cvtk.ml.torchapi.DataLoader(
+                cvtk.ml.torchapi.Dataset(datalabel,
                                            data,
-                                           transform=cvtk.ml.torchutils.DataTransform(224, is_train=False)),
+                                           transform=cvtk.ml.torchapi.DataTransform(224, is_train=False)),
                 batch_size=batch_size,
                 num_workers=num_workers)
     

@@ -71,9 +71,9 @@ class TestMMDet(unittest.TestCase):
 
     
     def __inference(self, model, datalabel, data, output_dpath):
-        data = cvtk.ml.mmdetutils.DataLoader(
-                    cvtk.ml.mmdetutils.Dataset(datalabel, data, 
-                                               cvtk.ml.mmdetutils.DataPipeline()),
+        data = cvtk.ml.mmdetapi.DataLoader(
+                    cvtk.ml.mmdetapi.Dataset(datalabel, data, 
+                                               cvtk.ml.mmdetapi.DataPipeline()),
                     phase='inference', batch_size=4, num_workers=8)
         pred_outputs = model.inference(data)
         for im in pred_outputs:
@@ -81,32 +81,32 @@ class TestMMDet(unittest.TestCase):
                     output=output_dpath + os.path.basename(im.source))
 
 
-    def __test_mmdetutils(self, label, train, valid=None, test=None, output_dpath=None, task='det', batch_size=4, num_workers=8):
+    def __test_mmdetapi(self, label, train, valid=None, test=None, output_dpath=None, task='det', batch_size=4, num_workers=8):
         output_pfx = os.path.join(output_dpath, 'sb')
         datalabel = cvtk.ml.data.DataLabel(label)
         if task == 'det':
-            model = cvtk.ml.mmdetutils.DetRunner(
+            model = cvtk.ml.mmdetapi.DetRunner(
                 datalabel, "faster-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
-            runner_cls = cvtk.ml.mmdetutils.DetRunner
+            runner_cls = cvtk.ml.mmdetapi.DetRunner
         else:
-            model = cvtk.ml.mmdetutils.SegmRunner(
+            model = cvtk.ml.mmdetapi.SegmRunner(
                 datalabel, "mask-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
-            runner_cls = cvtk.ml.mmdetutils.SegmRunner
+            runner_cls = cvtk.ml.mmdetapi.SegmRunner
 
         with_mask = False if task == 'det' else True
-        train = cvtk.ml.mmdetutils.DataLoader(
-                    cvtk.ml.mmdetutils.Dataset(datalabel, train,
-                                               cvtk.ml.mmdetutils.DataPipeline(is_train=True, with_bbox=True, with_mask=with_mask)),
+        train = cvtk.ml.mmdetapi.DataLoader(
+                    cvtk.ml.mmdetapi.Dataset(datalabel, train,
+                                               cvtk.ml.mmdetapi.DataPipeline(is_train=True, with_bbox=True, with_mask=with_mask)),
                     phase='train', batch_size=batch_size, num_workers=num_workers)
         if valid is not None:
-            valid = cvtk.ml.mmdetutils.DataLoader(
-                        cvtk.ml.mmdetutils.Dataset(datalabel, valid,
-                                                   cvtk.ml.mmdetutils.DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
+            valid = cvtk.ml.mmdetapi.DataLoader(
+                        cvtk.ml.mmdetapi.Dataset(datalabel, valid,
+                                                   cvtk.ml.mmdetapi.DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
                         phase='valid', batch_size=batch_size, num_workers=num_workers)
         if test is not None:
-            test = cvtk.ml.mmdetutils.DataLoader(
-                        cvtk.ml.mmdetutils.Dataset(datalabel, test,
-                                                   cvtk.ml.mmdetutils.DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
+            test = cvtk.ml.mmdetapi.DataLoader(
+                        cvtk.ml.mmdetapi.Dataset(datalabel, test,
+                                                   cvtk.ml.mmdetapi.DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
                         phase='test', batch_size=batch_size, num_workers=num_workers)
 
         model.train(train, valid, test, epoch=10)
@@ -134,7 +134,7 @@ class TestMMDet(unittest.TestCase):
 
 
     def test_det_t_t_t(self):
-        self.__test_mmdetutils(
+        self.__test_mmdetapi(
             testutils.data['det']['label'],
             testutils.data['det']['train'],
             testutils.data['det']['valid'],
@@ -144,7 +144,7 @@ class TestMMDet(unittest.TestCase):
 
 
     def test_det_t_t_f(self):
-        self.__test_mmdetutils(
+        self.__test_mmdetapi(
             testutils.data['det']['label'],
             testutils.data['det']['train'],
             testutils.data['det']['valid'],
@@ -154,7 +154,7 @@ class TestMMDet(unittest.TestCase):
 
 
     def test_det_t_f_t(self):
-        self.__test_mmdetutils(
+        self.__test_mmdetapi(
             testutils.data['det']['label'],
             testutils.data['det']['train'],
             None,
@@ -164,7 +164,7 @@ class TestMMDet(unittest.TestCase):
     
 
     def test_det_t_f_f(self):
-        self.__test_mmdetutils(
+        self.__test_mmdetapi(
             testutils.data['det']['label'],
             testutils.data['det']['train'],
             None,
@@ -174,7 +174,7 @@ class TestMMDet(unittest.TestCase):
 
 
     def test_segm_t_t_t(self):
-        self.__test_mmdetutils(
+        self.__test_mmdetapi(
             testutils.data['segm']['label'],
             testutils.data['segm']['train'],
             testutils.data['segm']['valid'],
@@ -184,7 +184,7 @@ class TestMMDet(unittest.TestCase):
 
 
     def test_segm_t_t_f(self):
-        self.__test_mmdetutils(
+        self.__test_mmdetapi(
             testutils.data['segm']['label'],
             testutils.data['segm']['train'],
             testutils.data['segm']['valid'],
@@ -194,7 +194,7 @@ class TestMMDet(unittest.TestCase):
 
 
     def test_segm_t_f_t(self):
-        self.__test_mmdetutils(
+        self.__test_mmdetapi(
             testutils.data['segm']['label'],
             testutils.data['segm']['train'],
             None,
@@ -204,7 +204,7 @@ class TestMMDet(unittest.TestCase):
     
     
     def test_segm_t_f_f(self):
-        self.__test_mmdetutils(
+        self.__test_mmdetapi(
             testutils.data['segm']['label'],
             testutils.data['segm']['train'],
             None,

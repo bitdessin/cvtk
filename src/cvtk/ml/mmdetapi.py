@@ -36,10 +36,10 @@ class DataPipeline():
     This class provides the basic image preprocessing pipeline used in MMDetection.
 
     Args:
-        is_train: Whether the pipeline is for training. Default is False.
-        with_bbox: Whether the dataset contains bounding boxes.
+        is_train (bool): Whether the pipeline is for training. Default is False.
+        with_bbox (bool): Whether the dataset contains bounding boxes.
             Default is True for object detection with bounding boxes only.
-        with_mask: Whether the dataset contains masks. Default is False.
+        with_mask (bool): Whether the dataset contains masks. Default is False.
     """
     def __init__(self, is_train: bool=False, with_bbox: bool=True, with_mask: bool=False):
         self.__cfg = None
@@ -88,15 +88,15 @@ class Dataset():
     This function generates the dataset configuration for MMDetection.
 
     Args:
-        datalabel: A DataLabel class object.
-        dataset: A path to a COCO format file with extension '.json',
+        datalabel (cvtk.ml.data.DataLabel): A DataLabel class object.
+        dataset (str|list[str]|dict|None): A path to a COCO format file with extension '.json',
             a path to a directory containing images,
             a path to an image file, or a list of paths to image files.
             Note that, for training, validation, and test, the COCO format file is required.
-        pipeline: A DataPipeline class object.
-        repeat_dataset: Whether to repeat the dataset. Default is False.
+        pipeline (DataPipeline|None): A DataPipeline class object.
+        repeat_dataset (bool): Whether to repeat the dataset. Default is False.
             Use the repeated dataset for training will be faster in some architecture.
-        image_root: Base directory for resolving COCO image `file_name` paths.
+        image_root (str|None): Base directory for resolving COCO image `file_name` paths.
             If None, image paths are resolved relative to the COCO annotation file directory.
     """
     def __init__(
@@ -198,8 +198,8 @@ class DataLoader():
     This function generates the dataloader configuration for MMDetection.
 
     Args:
-        dataset: A Dataset class object.
-        phase: The purpose of DataLoader usage. It shold be specified as one
+        dataset (Dataset|None): A Dataset class object.
+        phase (str): The purpose of DataLoader usage. It shold be specified as one
             'train', 'valie', 'test', and 'inference'.
         batch_size (int): Batch size.
         num_workers (int): Number of threads for data preprocessing and loading.
@@ -348,22 +348,22 @@ class DetRunner():
     Run `mim search mmdet --model "faster r-cnn"` to set the pre-defined configuration for `cfg`.
 
     Args:
-        datalabel: A :class:`DataLabel <cvtk.ml.data.DataLabel>` class object,
+        datalabel (cvtk.ml.data.DataLabel|str|list[str]|tuple[str]): A :class:`DataLabel <cvtk.ml.data.DataLabel>` class object,
             a path to a file containing class labels,
             or a list of class labels.
-        cfg: A path to a file containing model configuration (usually with extension '.py'),
+        cfg (str|dict): A path to a file containing model configuration (usually with extension '.py'),
             a dictionary of a model configuration,
             or a keyword of configuration pre-defined in MMDetection.
             The pre-defined configuration can be found from MMDetection GitHub repository
             or list up with the `mim` command (e.g., `mim search mmdet --model "faster r-cnn"`).
-        weights: A path to a file containing model weights (usually with extension '.pth').
+        weights (str|None): A path to a file containing model weights (usually with extension '.pth').
             If `None`, the function will download the pre-trained model weights
             from the MMDetection repository,
             or use the random weights if the download is not available.
-        workspace: A path to a directory for storing the intermediate files.
+        workspace (str|None): A path to a directory for storing the intermediate files.
             If not specified, this function creates a temporary directory in the OS temporary directory
             and removes it after the process is completed.
-        seed: A seed for model training.
+        seed (int|None): A seed for model training.
 
     Examples:
         >>> from cvtk.ml.data import DataLabel
@@ -523,12 +523,12 @@ class DetRunner():
         seed the :func:`test <cvtk.ml.mmdetutils.DetRunner.test>` method for more details.
 
         Args:
-            train: A DataLoader class object.
-            valid: A DataLoader class object or None.
-            test: A DataLoader class object or None.
-            epoch: The number of epochs.
-            optimizer: A dictionary of string indicating optimizer for training.
-            scheduler: A dictionary of string indicating scheduler for training.
+            train (DataLoader): A DataLoader class object.
+            valid (DataLoader|None): A DataLoader class object or None.
+            test (DataLoader|None): A DataLoader class object or None.
+            epoch (int): The number of epochs.
+            optimizer (dict|str|None): A dictionary or string indicating optimizer for training.
+            scheduler (dict|str|None): A dictionary or string indicating scheduler for training.
 
     Examples:
         >>> from cvtk.ml.data import DataLabel
@@ -680,7 +680,8 @@ class DetRunner():
 
     def test(
         self,
-        test: DataLoader
+        test: DataLoader,
+        cutoff: float=0.5
     ) -> dict:
         """Validate the model with test data
         
@@ -693,7 +694,8 @@ class DetRunner():
         The performance metrics (e.g., mAP) will be returned as a dictionary.
 
         Args:
-            test: A DataLoader class object configured for test phase.
+            test (DataLoader): A DataLoader class object configured for test phase.
+            cutoff (float): A float value for the cutoff threshold of predicted scores.
 
         Examples:
         >>> from cvtk.ml.data import DataLabel
@@ -746,7 +748,7 @@ class DetRunner():
 
             if po.get('pred_instances') is not None:
                 imsize = (po['ori_shape'][1], po['ori_shape'][0]) if 'ori_shape' in po else None
-                imann = self.__format_mmdet_output(img_path, po.get('pred_instances'), cutoff=0, imsize=imsize)
+                imann = self.__format_mmdet_output(img_path, po.get('pred_instances'), cutoff=cutoff, imsize=imsize)
                 for ann in imann.annotations:
                     annid += 1
                     bbox_xywh = ann.bbox.to_xywh() if ann.bbox else None
@@ -787,8 +789,6 @@ class DetRunner():
         return self.test_stats
     
 
-    
-
     def save(
         self,
         output: str
@@ -801,7 +801,7 @@ class DetRunner():
         with the different suffixes.
 
         Args:
-            output: A path to store the model weights and configuration.
+            output (str): A path to store the model weights and configuration.
         
         """
         if not output.endswith('.pth'):
@@ -871,7 +871,7 @@ class DetRunner():
         (bounding boxes, segmentations, scores).
         
         Args:
-            data: A DataLoader object, a path to an image file, or a list of image paths.
+            data (DataLoader|str|list[str]): A DataLoader object, a path to an image file, or a list of image paths.
             cutoff (float): Score threshold for filtering predictions. Default 0.5.
             
         Returns:

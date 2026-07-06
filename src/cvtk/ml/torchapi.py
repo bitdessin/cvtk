@@ -132,10 +132,10 @@ class Dataset_(torch.utils.data.Dataset):
     In this class, oversampling is performed by specifying `oversample=TRUE`.
     
     Args:
-        datalabel: A DataLabel instance. This datalabel is used to convert class labels to integers.
-        dataset: A path to a directory, a list, a tuple, or a TSV file.
-        transform: A transform pipeline of image processing.
-        balance_train: If True, the number of images in each class is balanced
+        datalabel (cvtk.ml.data.DataLabel|str|list|tuple): A DataLabel instance. This datalabel is used to convert class labels to integers.
+        dataset (str|list|tuple): A path to a directory, a list, a tuple, or a TSV file.
+        transform (torchvision.transforms.Compose|DataTransform|None): A transform pipeline of image processing.
+        oversample (bool): If True, the number of images in each class is balanced.
 
     Examples:
         >>> from cvtk.ml import DataLabel
@@ -375,7 +375,7 @@ class DataLoader(torch.utils.data.DataLoader):
     Supports batching, shuffling, and parallel data loading via worker processes.
 
     Args:
-        dataset: A PyTorch dataset object (typically from Dataset factory function).
+        dataset (torch.utils.data.Dataset): A PyTorch dataset object (typically from Dataset factory function).
         batch_size (int): Number of samples per batch. Default is 1.
         shuffle (bool): If True, shuffle data at every epoch. Default is False.
         num_workers (int): Number of worker processes for loading. Default is 0.
@@ -529,11 +529,11 @@ class ClsRunner(BaseRunner):
         """Initialize classification runner.
         
         Args:
-            datalabel: Class labels (DataLabel, filepath, list, or tuple).
-            model: Torchvision model name or torch.nn.Module instance.
-            weights: Pretrained weights path or torchvision weights enum. Default is None.
-            workspace: Checkpoint/log directory. Default is None.
-            device: Device to use ('auto', 'cuda', 'cpu'). Default is 'auto'.
+            datalabel (cvtk.ml.data.DataLabel|str|list|tuple): Class labels (DataLabel, filepath, list, or tuple).
+            model (str|torch.nn.Module): Torchvision model name or torch.nn.Module instance.
+            weights (str|None): Pretrained weights path or torchvision weights enum. Default is None.
+            workspace (str|None): Checkpoint/log directory. Default is None.
+            device (str): Device to use ('auto', 'cuda', 'cpu'). Default is 'auto'.
         """
         super().__init__(datalabel=datalabel, workspace=workspace, device=device)
 
