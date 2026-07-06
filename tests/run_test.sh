@@ -4,6 +4,7 @@ coverage run -p -m unittest test_data_coco
 
 coverage run -p -m unittest test_ml_base
 coverage run -p -m unittest test_ml_torch
+coverage run -p -m unittest test_ml_torchdet
 coverage run -p -m unittest test_ml_mmdet
 
 
