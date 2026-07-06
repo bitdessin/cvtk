@@ -88,7 +88,7 @@ In the example below, we combine :file:`train.json`, :file:`valid.json`, and :fi
 Note that when specifying multiple files, separate them with commas without spaces.
 
 
-.. code-block::
+.. code-block::sh
 
     cvtk coco-combine \
         --inputs train.json,valid.json,test.json \
@@ -112,7 +112,7 @@ To split a single COCO format file into multiple files, use the ``cvtk coco-spli
 In the example below, we shuffle :file:`dataset.json`` and then split it into three files in a 6:2:2 ratio,
 saving the output as subset.json.
 
-.. code-block::
+.. code-block::sh
 
     cvtk coco-split \
         --input ./data/strawberry/train/bbox.json \
@@ -138,12 +138,14 @@ a image with ID `1` and other image with file name `data/strawberry/train/images
 and a category named `flower`.
 
 
-.. code-block::
+.. code-block::sh
+
     cvtk coco-remove \
         --input ./data/strawberry/train/bbox.json \
         --output ./output/subset.bbox.json \
         --images 1,data/strawberry/train/images/2129c05b.jpg \
         --categories flower
+
 
 This functionality can also be executed from Python using the :func:`split <cvtk.format.coco.remove>` method.
 
@@ -157,7 +159,7 @@ To crop images using the bounding box information in a COCO format file, use the
 Ensure that the ``file_name`` in the COCO format file correctly points to the actual image file paths.
 Convert to absolute paths if necessary.
 
-.. code-block::
+.. code-block::sh
 
     cvtk coco-crop \
         --input dataset.json \
@@ -180,7 +182,7 @@ To obtain statistics from a COCO format file,
 such as the number of images, number of categories,
 and the number of objects annotated for each category, use the ``cvtk coco-stat`` command.
 
-.. code-block::
+.. code-block::sh
 
     cvtk coco-stat \
         --input ./data/strawberry/train/bbox.json
@@ -189,5 +191,4 @@ and the number of objects annotated for each category, use the ``cvtk coco-stat`
 The statistics are displayed in the standard output.
 If you wish to save the statistics in a JSON file or another format,
 use the :func:`stats <cvtk.format.coco.stats>` method directly from Python.
-
 

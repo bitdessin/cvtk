@@ -5,63 +5,105 @@ Installation
 Quick Installation
 ******************
 
-The source code for **cvtk** is available on `GitHub <https://github.com/bitdessin/cvtk>`_,
-and the built package is available on `PyPI <https://pypi.org/project/cvtk/>`_.
-User can install **cvtk** with minimal dependencies using the following command:
+**cvtk** requires `PyTorch <https://pytorch.org/get-started/locally/>`_.
+While PyTorch can be installed automatically during **cvtk** installation,
+it is strongly recommended to install PyTorch first to ensure proper GPU support.
+
+Below is an example of installing PyTorch for CUDA 12.6 followed by **cvtk**:
 
 
 .. code-block:: bash
 
+    pip install -U pip
+
+    # install PyTorch 2.12.1 with CUDA 12.6 support
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+
+    # install cvtk
     pip install cvtk
+
+
 
 
 
 Installation with Full Features
 *******************************
 
-
-For additional functionality,
-such as handling COCO format files,
-generating source code for object classification tasks with `PyTorch <https://pytorch.org/>`_,
-generating source code for object detection and instance segmentation tasks
-with `MMDetection <https://mmdetection.readthedocs.io/en/latest/>`_,
-and creating `Flask <https://flask.palletsprojects.com/>`_ applications,
-the **cvtk** with full dependencies should be installed.
-
-The **cvtk** with full dependencies requires **torch** package (`PyTorch <https://pytorch.org/>`_) version 2.0.0 or later
-and **mmdet** package (`MMDetection <https://mmdetection.readthedocs.io/en/latest/>`_) version 3.0.0 or later.
-It is recommended that the **torch** and **mmdet** packages
-(and the related packages **openmim**, **mmengine**, and **mmcv**)
-be installed manually prior to installation.
-This is because these packages depend on the operating system (OS) and CUDA version
-and cannot be installed automatically.
-Below is an example of **torch** and **mmdet** installation in a CUDA 11.8 environment.
-For detailed installation instructions, please refer to the tutorial for each package.
+**cvtk** optionally integrates with `MMDetection <https://github.com/open-mmlab/mmdetection>`_
+to provide access to a comprehensive suite of object detection and instance segmentation models.
 
 .. note::
 
-    The installation of **mmdet** and **mmcv** package is prone to failure.
-    It is important to ensure that the versions of **mmdet** and **mmcv** installed
-    are compatible with the CUDA and **torch** versions.
-    If the versions do not match, an error will occur when calling **mmcv**
-    (which is called by **mmdet** and **mmdet** is called by **cvtk**).
+    The original MMDetection project by OpenMMLab is no longer actively maintained.
+    **cvtk** now recommends using OneDL MMDetection, a community fork maintained by the VBTI team,
+    which provides regular updates, bug fixes, and improved compatibility.
+
+To enable full detection and segmentation functionality, install the OneDL MMDetection dependencies:
 
 
 .. code-block:: bash
 
-    # PyTorch (CUDA 11.8)
-    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+    pip install -U pip
 
-    # MMDetection (mim, mmengin, mmcv, mmdet)
-    pip install -U openmim
-    mim install mmengine
-    mim install "mmcv>=2.0.0"
-    mim install "mmdet>=3.0.0"
+    # install PyTorch 2.12.1 with CUDA 12.6 support
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+
+    # install OneDL MMDetection and dependencies
+    pip install onedl-mim
+    mim install onedl-mmengine
+    mim install onedl-mmcv
+    mim install onedl-mmdetection
+
+    # install cvtk with full features
+    pip install cvtk[full]
 
 
-Then, user can install **cvtk** with all dependencies using the following command:
+Troubleshooting Installation Issues
+***********************************
+
+If the above installation commands fail due to firewall restrictions, platform unavailability,
+or errors like ``ModuleNotFoundError: No module named 'mmcv._ext'``,
+you can install the packages from source:
+
+.. note::
+
+    The version numbers in the following examples (v2.3.6.post1 for mmcv and v3.5.1 for mmdetection)
+    are provided as examples only.
+    Check the official repositories for the latest releases:
+    
+    - `OneDL MMCv Releases <https://github.com/VBTI-development/onedl-mmcv/releases>`_
+    - `OneDL MMDetection Releases <https://github.com/VBTI-development/onedl-mmdetection/releases>`_
+
 
 .. code-block:: bash
 
-    pip install cvtk[all]
+    # remove any existing mmcv and mmdet installations
+    pip uninstall -y mmcv mmdet
+
+    # install core dependencies
+    pip install onedl-mim
+    pip install onedl-mmengine
+
+    # build and install mmcv from source (replace v2.3.6.post1 with latest version)
+    wget https://github.com/VBTI-development/onedl-mmcv/archive/refs/tags/v2.3.6.post1.tar.gz -O onedl-mmcv-v2.3.6.post1.tar.gz
+    tar -zxvf onedl-mmcv-v2.3.6.post1.tar.gz
+    cd onedl-mmcv-2.3.6.post1
+    pip install -e . -v --no-cache-dir --no-build-isolation --force-reinstall
+    cd ..
+
+    # build and install mmdetection from source (replace v3.5.1 with latest version)
+    wget https://github.com/VBTI-development/onedl-mmdetection/archive/refs/tags/v3.5.1.tar.gz -O onedl-mmdetection-v3.5.1.tar.gz
+    tar -zxvf onedl-mmdetection-v3.5.1.tar.gz
+    cd onedl-mmdetection-3.5.1
+    pip install -e . -v --no-cache-dir --no-build-isolation --force-reinstall
+    cd ..
+
+    # install cvtk with full features
+    pip install cvtk[full]
+
+.. note::
+
+    Source installation may take several minutes to compile native extensions.
+    Ensure you have a C++ compiler and development headers installed on your system.
+
 
