@@ -17,26 +17,26 @@ def train(
     temp_dpath = os.path.splitext(output_weights)[0]
 
     datalabel = cvtk.ml.data.DataLabel(label)
-    model = cvtk.ml.mmdetutils.DetRunner(
+    model = cvtk.ml.mmdetapi.DetRunner(
         datalabel, "faster-rcnn_r101_fpn_1x_coco", None, workspace=temp_dpath)
 
-    train = cvtk.ml.mmdetutils.DataLoader(
-                cvtk.ml.mmdetutils.Dataset(datalabel, train,
-                        cvtk.ml.mmdetutils.DataPipeline(is_train=True, with_bbox=True, with_mask=False)),
+    train = cvtk.ml.mmdetapi.DataLoader(
+                cvtk.ml.mmdetapi.Dataset(datalabel, train,
+                        cvtk.ml.mmdetapi.DataPipeline(is_train=True, with_bbox=True, with_mask=False)),
                 phase='train',
                 batch_size=batch_size,
                 num_workers=num_workers)
     if valid is not None:
-        valid = cvtk.ml.mmdetutils.DataLoader(
-                    cvtk.ml.mmdetutils.Dataset(datalabel, valid,
-                            cvtk.ml.mmdetutils.DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
+        valid = cvtk.ml.mmdetapi.DataLoader(
+                    cvtk.ml.mmdetapi.Dataset(datalabel, valid,
+                            cvtk.ml.mmdetapi.DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
                     phase='valid',
                     batch_size=batch_size,
                     num_workers=num_workers)
     if test is not None:
-        test = cvtk.ml.mmdetutils.DataLoader(
-                    cvtk.ml.mmdetutils.Dataset(datalabel, test,
-                            cvtk.ml.mmdetutils.DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
+        test = cvtk.ml.mmdetapi.DataLoader(
+                    cvtk.ml.mmdetapi.Dataset(datalabel, test,
+                            cvtk.ml.mmdetapi.DataPipeline(is_train=False, with_bbox=True, with_mask=False)),
                     phase='test',
                     batch_size=batch_size,
                     num_workers=num_workers)
@@ -67,10 +67,10 @@ def _plot_log(log_fpath):
 def inference(label, data, model_weights, output, batch_size=4, num_workers=8):
     datalabel = cvtk.ml.data.DataLabel(label)
     
-    model = cvtk.ml.mmdetutils.DetRunner(datalabel, os.path.splitext(model_weights)[0] + '.py', model_weights, workspace=output)
+    model = cvtk.ml.mmdetapi.DetRunner(datalabel, os.path.splitext(model_weights)[0] + '.py', model_weights, workspace=output)
 
-    data = cvtk.ml.mmdetutils.DataLoader(
-                cvtk.ml.mmdetutils.Dataset(datalabel, data, cvtk.ml.mmdetutils.DataPipeline()),
+    data = cvtk.ml.mmdetapi.DataLoader(
+                cvtk.ml.mmdetapi.Dataset(datalabel, data, cvtk.ml.mmdetapi.DataPipeline()),
                 phase='inference', batch_size=batch_size, num_workers=num_workers)
     
     pred_outputs = model.inference(data)
