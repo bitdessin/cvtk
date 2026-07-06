@@ -87,9 +87,11 @@ class TestMMDet(unittest.TestCase):
         if task == 'det':
             model = cvtk.ml.mmdetutils.DetRunner(
                 datalabel, "faster-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
+            runner_cls = cvtk.ml.mmdetutils.DetRunner
         else:
-            model = cvtk.ml.mmdetutils.DetRunner(
+            model = cvtk.ml.mmdetutils.SegmRunner(
                 datalabel, "mask-rcnn_r101_fpn_1x_coco", None, workspace=output_dpath)
+            runner_cls = cvtk.ml.mmdetutils.SegmRunner
 
         with_mask = False if task == 'det' else True
         train = cvtk.ml.mmdetutils.DataLoader(
@@ -122,7 +124,7 @@ class TestMMDet(unittest.TestCase):
                           output=f'{output_pfx}.train_stats.valid.png')
 
         # inference
-        model = cvtk.ml.mmdetutils.DetRunner(datalabel, f'{output_pfx}.py', f'{output_pfx}.pth',
+        model = runner_cls(datalabel, f'{output_pfx}.py', f'{output_pfx}.pth',
                           workspace=output_dpath)
         
         #  images from a folder
