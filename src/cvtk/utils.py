@@ -98,6 +98,7 @@ def expand_cvtk_sources(script_lines, cvtk_root=None):
         "".join(script_lines),
         source_map,
         allow_import_cvtk=True,
+        source_file=None,
     )
 
     definitions, source_files = _collect_required_defs(used_paths, source_map)
@@ -108,7 +109,12 @@ def expand_cvtk_sources(script_lines, cvtk_root=None):
 
     for source_file, name in definitions:
         code = _extract_top_level_def(source_file, name)
-        code, _ = _rewrite_cvtk_refs(code, source_map, allow_import_cvtk=False)
+        code, _ = _rewrite_cvtk_refs(
+            code,
+            source_map,
+            allow_import_cvtk=False,
+            source_file=source_file,
+        )
         output.extend(_to_lines(code))
         output.append("\n")
 
@@ -118,10 +124,12 @@ def expand_cvtk_sources(script_lines, cvtk_root=None):
 
 
 class _CvtkRefRewriter(ast.NodeTransformer):
-    def __init__(self, source_map, allow_import_cvtk):
+    def __init__(self, source_map, allow_import_cvtk, source_file=None):
         self.source_map = source_map
         self.allow_import_cvtk = allow_import_cvtk
+        self.source_file = source_file
         self.used_paths = set()
+        self.import_aliases = _collect_module_import_aliases(source_file)
 
     def visit_Import(self, node):
         kept = []
@@ -155,6 +163,20 @@ class _CvtkRefRewriter(ast.NodeTransformer):
                 "Use `import cvtk` and fully qualified `cvtk.xxx.yyy(...)`."
             )
 
+        if node.level > 0:
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+
+                resolved_file = _resolve_relative_import_file(
+                    self.source_file,
+                    node,
+                    alias.name,
+                )
+                if resolved_file is not None:
+                    self.import_aliases[alias.asname or alias.name] = resolved_file
+            return None
+
         return node
 
     def visit_Attribute(self, node):
@@ -168,12 +190,37 @@ class _CvtkRefRewriter(ast.NodeTransformer):
                 node,
             )
 
+        if isinstance(node.value, ast.Name):
+            imported_file = self.import_aliases.get(node.value.id)
+            if imported_file is not None:
+                mapped_path = _resolve_imported_attr_path(imported_file, node.attr, self.source_map)
+                if mapped_path is not None:
+                    self.used_paths.add(mapped_path)
+                    return ast.copy_location(
+                        ast.Name(id=node.attr, ctx=node.ctx),
+                        node,
+                    )
+
+        alias_name, tail = _alias_attribute_parts(node, self.import_aliases)
+        if alias_name is not None:
+            mapped_path, mapped_tail = _resolve_imported_attribute_path(
+                self.import_aliases[alias_name],
+                tail,
+                self.source_map,
+            )
+            if mapped_path is not None:
+                self.used_paths.add(mapped_path)
+                return ast.copy_location(
+                    _build_replacement(mapped_path.rsplit(".", 1)[-1], mapped_tail, node.ctx),
+                    node,
+                )
+
         return self.generic_visit(node)
 
 
-def _rewrite_cvtk_refs(code, source_map, allow_import_cvtk):
+def _rewrite_cvtk_refs(code, source_map, allow_import_cvtk, source_file=None):
     tree = ast.parse(code)
-    rewriter = _CvtkRefRewriter(source_map, allow_import_cvtk)
+    rewriter = _CvtkRefRewriter(source_map, allow_import_cvtk, source_file=source_file)
     tree = rewriter.visit(tree)
     ast.fix_missing_locations(tree)
 
@@ -216,6 +263,156 @@ def _build_replacement(name, tail, ctx):
 
     node.ctx = ctx
     return node
+
+
+def _alias_attribute_parts(node, import_aliases):
+    parts = []
+    cur = node
+
+    while isinstance(cur, ast.Attribute):
+        parts.append(cur.attr)
+        cur = cur.value
+
+    if isinstance(cur, ast.Name) and cur.id in import_aliases:
+        return cur.id, list(reversed(parts))
+
+    return None, []
+
+
+def _resolve_relative_import_file(source_file, node, member_name):
+    if source_file is None:
+        return None
+
+    package_dir = Path(source_file).resolve().parent
+    base_dir = package_dir
+
+    for _ in range(node.level - 1):
+        base_dir = base_dir.parent
+
+    if node.module:
+        module_path = base_dir.joinpath(*node.module.split("."))
+    else:
+        module_path = base_dir
+
+    candidates = [module_path.with_suffix(".py"), module_path / "__init__.py"]
+    if node.module is None and member_name:
+        candidates = [
+            base_dir.joinpath(member_name).with_suffix(".py"),
+            base_dir.joinpath(member_name, "__init__.py"),
+            *candidates,
+        ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return None
+
+
+def _has_top_level_def(source_file, name):
+    return name in _collect_top_level_defs(source_file)
+
+
+def _collect_top_level_defs(source_file):
+    tree, _ = _read_module(source_file)
+    return set(_top_level_defs(tree))
+
+
+def _resolve_imported_attr_path(source_file, attr_name, source_map):
+    mapped_path, _ = _resolve_imported_attribute_path(source_file, [attr_name], source_map)
+    if mapped_path is not None:
+        return mapped_path
+
+    return None
+
+
+def _resolve_imported_attribute_path(source_file, attr_parts, source_map):
+    if not attr_parts:
+        return None, []
+
+    for cvtk_path, mapped_file in source_map.items():
+        if (
+            str(Path(mapped_file).resolve()) == str(Path(source_file).resolve())
+            and cvtk_path.rsplit(".", 1)[-1] == attr_parts[0]
+        ):
+            return cvtk_path, attr_parts[1:]
+
+    if Path(source_file).name == "__init__.py" and _package_exports_name(source_file, attr_parts[0]):
+        suffix = ".".join(attr_parts)
+        matches = [cvtk_path for cvtk_path in source_map if cvtk_path.endswith(f".{suffix}")]
+        if len(matches) == 1:
+            return matches[0], []
+
+        matches = [cvtk_path for cvtk_path in source_map if cvtk_path.rsplit(".", 1)[-1] == attr_parts[0]]
+        if len(matches) == 1:
+            return matches[0], attr_parts[1:]
+
+    return None, []
+
+
+def _package_exports_name(source_file, attr_name):
+    tree, _ = _read_module(source_file)
+    package_dir = Path(source_file).resolve().parent
+
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom) or node.level == 0:
+            continue
+
+        base_dir = _relative_import_base(package_dir, node.level)
+        module_file = _resolve_module_file(node.module or "", base_dir)
+        if module_file is None:
+            continue
+
+        for alias in node.names:
+            if alias.name == "*":
+                if attr_name in _extract_public_names(module_file):
+                    return True
+            elif (alias.asname or alias.name) == attr_name:
+                return True
+
+    return False
+
+
+def _collect_module_import_aliases(source_file):
+    if source_file is None:
+        return {}
+
+    tree, _ = _read_module(source_file)
+    aliases = {}
+
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+
+                resolved_file = _resolve_relative_import_file(source_file, node, alias.name)
+                if resolved_file is not None:
+                    aliases[alias.asname or alias.name] = resolved_file
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname is None:
+                    continue
+
+                if alias.name == "cvtk" or alias.name.startswith("cvtk."):
+                    continue
+
+                resolved_file = _resolve_import_module_file(source_file, alias.name)
+                if resolved_file is not None:
+                    aliases[alias.asname] = resolved_file
+
+    return aliases
+
+
+def _resolve_import_module_file(source_file, module_name):
+    source_path = Path(source_file).resolve().parent
+    module_path = source_path.joinpath(*module_name.split("."))
+
+    for candidate in (module_path.with_suffix(".py"), module_path / "__init__.py"):
+        if candidate.exists():
+            return candidate
+
+    return None
 
 
 def _collect_required_defs(initial_paths, source_map):
@@ -289,17 +486,20 @@ def _find_cvtk_deps_in_def(source_file, name, source_map):
     if target is None:
         return []
 
-    collector = _CvtkDepCollector(source_map)
+    collector = _CvtkDepCollector(source_map, source_file)
     collector.visit(target)
     return sorted(collector.paths)
 
 
 class _CvtkDepCollector(ast.NodeVisitor):
-    def __init__(self, source_map):
+    def __init__(self, source_map, source_file=None):
         self.source_map = source_map
+        self.import_aliases = _collect_module_import_aliases(source_file)
         self.paths = set()
 
     def visit_Attribute(self, node):
+        self.generic_visit(node)
+
         full_path = _attribute_to_dotted_name(node)
         mapped_path, _ = _longest_source_map_prefix(full_path, self.source_map)
 
@@ -307,7 +507,15 @@ class _CvtkDepCollector(ast.NodeVisitor):
             self.paths.add(mapped_path)
             return
 
-        self.generic_visit(node)
+        alias_name, tail = _alias_attribute_parts(node, self.import_aliases)
+        if alias_name is not None:
+            mapped_path, _ = _resolve_imported_attribute_path(
+                self.import_aliases[alias_name],
+                tail,
+                self.source_map,
+            )
+            if mapped_path is not None:
+                self.paths.add(mapped_path)
         
         
 def _read_module(source_file):

@@ -17,7 +17,7 @@ class TestTorchScript(unittest.TestCase):
         script = os.path.join(dpath, 'script.py')
         
         if code_generator == 'api':
-            cvtk.ml.deploy_model(script, backend='torch', task='cls', vanilla=vanilla)
+            cvtk.ml.deploy.runner(script, backend='torch', task='cls', vanilla=vanilla)
         
         elif code_generator == 'script':
             cmd_ = ['cvtk', 'deploy-model', '--backend', 'torch', '--task', 'cls', '--script', script]
@@ -30,6 +30,7 @@ class TestTorchScript(unittest.TestCase):
                     '--train', testutils.data['cls']['train'],
                     '--valid', testutils.data['cls']['valid'],
                     '--test', testutils.data['cls']['test'],
+                    '--epoch', '5',
                     '--output_weights', os.path.join(dpath, 'fruits.pth')])
 
         testutils.run_cmd(['python', script, 'test',
@@ -51,6 +52,20 @@ class TestTorchScript(unittest.TestCase):
 
     def test_torch_api(self):
         self.__run_proc('api', True)
+
+
+    def test_vanilla_runner_embeds_datalabel_alias(self):
+        script = os.path.join(self.ws, 'vanilla_alias.py')
+        cvtk.ml.deploy.runner(script, backend='torch', task='cls', vanilla=True)
+
+        with open(script, 'r') as fh:
+            source = fh.read()
+
+        namespace = {}
+        exec(compile(source, script, 'exec'), namespace)
+
+        runner = namespace['BaseRunner'](['cat', 'dog'], workspace=None, device='cpu')
+        self.assertEqual(runner.datalabel.labels, ['cat', 'dog'])
 
 
     def test_cvtk_script(self):
@@ -138,7 +153,7 @@ class TestTorchUtils(unittest.TestCase):
 
         model.train(train, valid, test, epoch=3)
         print('resume ...')
-        model.train(train, valid, test, epoch=10, resume=True)
+        model.train(train, valid, test, epoch=2, resume=True)
         model.save(output)
 
         cvtk.viz.plot(os.path.splitext(output)[0] + '.train_stats.txt',

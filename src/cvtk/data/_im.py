@@ -1,6 +1,4 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
-
 import os
 import pathlib
 import random
@@ -14,15 +12,14 @@ import PIL.ImageFile
 import PIL.ImageDraw
 import PIL.ImageFont
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
-
 import skimage
 import skimage.measure
-
 import pycocotools
 import pycocotools.mask
+from dataclasses import dataclass, field
 
-import cvtk
-
+from .. import io as cvtk_io
+from .. import utils as cvtk_utils
 
 _MaskArray = npt.NDArray[np.bool_]
 _RLE = dict[str, typing.Any]
@@ -794,7 +791,7 @@ class Segm:
         return data
 
 
-@dataclass
+@dataclass(frozen=True)
 class InstanceAnnotation:
     """Represents an instance annotation with label, bounding box, segmentation, and score.
     
@@ -905,9 +902,9 @@ class ImageRecord:
 
 
     def __post_init__(self) -> None:
-        # If size is provided, skip reading the file
+        # if size is provided, skip reading the file
         if self.size is None:
-            im = cvtk.io.imread(self.source)
+            im = cvtk_io.imread(self.source)
             self.size = im.size
 
         self.source = pathlib.Path(self.source)
@@ -1027,11 +1024,11 @@ class ImageRecord:
             return col_dict[key]
         
         
-        layers = cvtk.utils.as_list(layers)
+        layers = cvtk_utils.as_list(layers)
         if set(layers) - {"bbox", "segm", "mask", "overlay"}:
             raise ValueError(f"Valid layers are: 'bbox', 'segm', 'mask', and 'overlay', but got: {layers}")
     
-        im = cvtk.io.imread(self.source).convert("RGB")
+        im = cvtk_io.imread(self.source).convert("RGB")
         draw_ctx = PIL.ImageDraw.Draw(im)
 
         # font
@@ -1295,4 +1292,3 @@ class ImageDataset:
                 annotation_id += 1
 
         return coco_dict
-

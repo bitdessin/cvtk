@@ -25,7 +25,10 @@ import mmdet.apis
 import mmengine.config
 import mmengine.runner
 import mmdet.evaluation
-import cvtk
+
+from .. import data as cvtk_data
+from .. import utils as cvtk_utils
+from . import data as cvtk_ml_data
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +104,7 @@ class Dataset():
     """
     def __init__(
         self,
-        datalabel: cvtk.ml.data.DataLabel,
+        datalabel: cvtk_ml_data.DataLabel,
         dataset: str|list[str]|dict|None,
         pipeline: DataPipeline|None=None,
         repeat_dataset: bool=False,
@@ -208,7 +211,7 @@ class DataLoader():
         self.__cfg = None
 
         if dataset is None:
-            dataset = Dataset(cvtk.ml.data.DataLabel([]), None)
+            dataset = Dataset(cvtk_ml_data.DataLabel([]), None)
 
         dataset_cfg = dataset.cfg
         base_dataset_cfg = self.__unwrap_dataset_cfg(dataset_cfg)
@@ -381,14 +384,14 @@ class DetRunner():
         >>> model.save('/path/to/model.pth')
     """
     def __init__(self,
-                 datalabel: cvtk.ml.data.DataLabel|str|list[str]|tuple[str],
+                 datalabel: cvtk_ml_data.DataLabel|str|list[str]|tuple[str],
                  cfg: str|dict,
                  weights: str|None=None,
                  workspace=None,
                  seed=None):
         self.task_type = 'det'
         if not(datalabel is None and cfg is None):
-            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            self.device = self._init_device()
             self.datalabel = self.__init_datalabel(datalabel)
             self.cfg = self.__init_cfg(cfg, weights, seed)
             self.model = None
@@ -396,6 +399,14 @@ class DetRunner():
             self.mmdet_log_dpath = None
             self.test_stats = None
     
+
+    def _init_device(self):
+        if torch.cuda.is_available():
+            return 'cuda'
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            return 'cpu'
+        return 'cpu'
+
 
     def __del__(self):
         try:
@@ -411,10 +422,10 @@ class DetRunner():
 
 
     def __init_datalabel(self, datalabel):
-        if isinstance(datalabel, cvtk.ml.data.DataLabel):
+        if isinstance(datalabel, cvtk_ml_data.DataLabel):
             pass
         elif isinstance(datalabel, str) or isinstance(datalabel, list) or isinstance(datalabel, tuple):
-            datalabel = cvtk.ml.data.DataLabel(datalabel)
+            datalabel = cvtk_ml_data.DataLabel(datalabel)
         else:
             raise TypeError('Invalid type: {}'.format(type(datalabel)))
         return datalabel
@@ -778,7 +789,7 @@ class DetRunner():
                     if ann.segm is not None:
                         cocodict['annotations'][-1]['segmentation'] = ann.segm.to_rle()
 
-        cvtk.utils.save_json(cocodict,
+        cvtk_utils.save_json(cocodict,
                              os.path.splitext(test_outputs)[0] + '.coco.json', indent=4, ensure_ascii=False)
 
         iou_type = 'bbox'
@@ -788,7 +799,7 @@ class DetRunner():
                 if 'with_mask' in pp and pp['with_mask']:
                     iou_type = 'segm'
 
-        self.test_stats = cvtk.data.coco.calc_stats(self.cfg.test_evaluator.ann_file,
+        self.test_stats = cvtk_data.coco.calc_stats(self.cfg.test_evaluator.ann_file,
                                      os.path.splitext(test_outputs)[0] + '.coco.json',
                                      image_by='file_name',
                                      category_by='name',
@@ -877,7 +888,7 @@ class DetRunner():
         self,
         data: DataLoader|str|list[str],
         cutoff: float=0.5
-    ) -> cvtk.data.ImageDataset:
+    ) -> cvtk_data.ImageDataset:
         """Perform model inference on images.
         
         Run inference on provided images and return results as an ImageDataset.
@@ -948,7 +959,7 @@ class DetRunner():
             record = self.__format_mmdet_output(target_image, output.pred_instances, cutoff, imsize=imsize)
             records.append(record)
         
-        return cvtk.data.ImageDataset(records=records)
+        return cvtk_data.ImageDataset(records=records)
     
     
     def __load_images(self, dataset, image_root: str|None=None):
@@ -1057,20 +1068,20 @@ class DetRunner():
         for i in range(len(pred_labels)):
             if pred_scores[i] >= cutoff:
                 x1, y1, x2, y2 = pred_bboxes[i]
-                bbox = cvtk.data.Bbox.from_xyxy(x1, y1, x2, y2, imsize=imsize) if imsize else None
+                bbox = cvtk_data.Bbox.from_xyxy(x1, y1, x2, y2, imsize=imsize) if imsize else None
                 
                 # Create segmentation from mask
                 segm = None
                 if pred_masks[i] is not None and imsize:
                     if isinstance(pred_masks[i], dict):
-                        segm = cvtk.data.Segm.from_rle(pred_masks[i], imsize=imsize)
+                        segm = cvtk_data.Segm.from_rle(pred_masks[i], imsize=imsize)
                     else:
-                        segm = cvtk.data.Segm.from_mask(pred_masks[i])
+                        segm = cvtk_data.Segm.from_mask(pred_masks[i])
                 
-                ann = cvtk.data.InstanceAnnotation(label=pred_labels[i], bbox=bbox, segm=segm, score=pred_scores[i])
+                ann = cvtk_data.InstanceAnnotation(label=pred_labels[i], bbox=bbox, segm=segm, score=pred_scores[i])
                 annotations.append(ann)
         
-        return cvtk.data.ImageRecord(pathlib.Path(im_fpath), annotations=annotations, size=imsize)
+        return cvtk_data.ImageRecord(pathlib.Path(im_fpath), annotations=annotations, size=imsize)
         
 
     def __get_input_image_name_map(self):
@@ -1100,7 +1111,7 @@ class SegmRunner(DetRunner):
     """
 
     def __init__(self,
-                 datalabel: cvtk.ml.data.DataLabel|str|list[str]|tuple[str],
+                 datalabel: cvtk_ml_data.DataLabel|str|list[str]|tuple[str],
                  cfg: str|dict,
                  weights: str|None=None,
                  workspace=None,

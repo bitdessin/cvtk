@@ -2,12 +2,11 @@ import os
 import argparse
 import urllib
 import shutil
-import datetime
 import tempfile
-import PIL.Image
+import warnings
 import torch
 from cvtk.ml.data import DataLabel
-from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, ModuleCore
+from __MODULE_IMPORT__ import __MODULE_CLASS__ as ModuleCore
 import label_studio_ml
 import label_studio_ml.model
 import label_studio_ml.api
@@ -34,12 +33,12 @@ class MLBASE(label_studio_ml.model.LabelStudioMLBase):
         self.temp_dpath = tempfile.mkdtemp()
         self.datalabel = DataLabel("__DATALABEL__")
         self.model = ModuleCore(self.datalabel, "__MODELCFG__", "__MODELWEIGHT__", workspace=self.temp_dpath)
-        self.model.to(self.device)
         self.version = '0.0.0'
 
 
     def __del__(self):
-        shutil.rmtree(self.temp_dpath)
+        if hasattr(self, 'temp_dpath') and os.path.exists(self.temp_dpath):
+            shutil.rmtree(self.temp_dpath)
         
 
     def fit(self, tasks, workdir=None, **kwargs):
@@ -50,14 +49,15 @@ class MLBASE(label_studio_ml.model.LabelStudioMLBase):
     
 
     def predict(self, tasks, context, **kwargs):
-        self.mdoel.eval()
+        if hasattr(self.model, 'model') and self.model.model is not None:
+            self.model.model.eval()
 
         target_images = []
         for task in tasks:
             target_images.append(self.__get_image(task))
 
         with torch.no_grad():
-            outputs = self.model.inference(target_images)
+            outputs = self.model.inference(target_images, cutoff=0.5)
                 
         return [self.__detoutput2lsjson(o) for o in outputs]
 
@@ -79,10 +79,12 @@ class MLBASE(label_studio_ml.model.LabelStudioMLBase):
     def __detoutput2lsjson(self, im):
         obj_instances = []
         for ann in im.annotations:
-            if ann['score'] < 0.5:
+            if ann.score is None or ann.score < 0.5:
+                continue
+            if ann.bbox is None:
                 continue
 
-            x1, y1, x2, y2 = ann['bbox']
+            x1, y1, x2, y2 = ann.bbox.to_xyxy()
             w = float((x2 - x1) / im.width * 100)
             h = float((y2 - y1) / im.height * 100)
             x = float(x1 / im.width * 100)
@@ -95,12 +97,12 @@ class MLBASE(label_studio_ml.model.LabelStudioMLBase):
                 'original_width': im.width,
                 'original_height': im.height,
                 'value': {
-                    'rectanglelabels': [ann['label']],
+                    'rectanglelabels': [ann.label],
                     'x': x,
                     'y': y,
                     'width': w,
                     'height': h,
-                    'score': ann['score'],
+                    'score': ann.score,
                 }
             })
 
@@ -115,9 +117,9 @@ class MLBASE(label_studio_ml.model.LabelStudioMLBase):
 
 if __name__ == '__main__':
     if not os.getenv('LABEL_STUDIO_BASE_DATA_DIR'):
-        Warning('Environment variable "LABEL_STUDIO_BASE_DATA_DIR" is not defined. It is required to treat images uploaded to Label Studio via API or web browser.')
+        warnings.warn('Environment variable "LABEL_STUDIO_BASE_DATA_DIR" is not defined. It is required to treat images uploaded to Label Studio via API or web browser.')
     if not os.getenv('LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT'):
-        Warning('Environment variable "LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT" is not defined. It is required to treat images synced from local storage.')
+        warnings.warn('Environment variable "LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT" is not defined. It is required to treat images synced from local storage.')
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--host', type=str, default='0.0.0.0')

@@ -1,23 +1,31 @@
 import argparse
 import pprint
 import cvtk
-import cvtk.ml
-import cvtk.data
-import cvtk.data.coco
-import cvtk.ls
 
 
 def deploy_model(args):
-    cvtk.ml.deploy_model(args.script, backend=args.backend, task=args.task, vanilla=args.vanilla)
+    cvtk.ml.deploy.runner(args.script,
+                          backend=args.backend,
+                          task=args.task,
+                          vanilla=args.vanilla)
 
 
 def deploy_demoapp(args):
-    cvtk.ls.deploy_demoapp(args.project,
-                             source=args.source,
-                             label=args.label,
-                             model=args.model,
-                             weights=args.weights,
-                             vanilla=args.vanilla)
+    cvtk.ml.deploy.demoapp(
+        app_name=args.app_name,
+        runner_script=args.runner_script,
+        weights=args.weight,
+        label=args.label,
+    )
+    
+    
+def deploy_ls_mlbackend(args):
+    cvtk.ls.deploy.mlbackend(args.project,
+                         source=args.source,
+                         label=args.label,
+                         model=args.model,
+                         weights=args.weights,
+                         vanilla=args.vanilla)
 
 
 def split(args):
@@ -75,21 +83,7 @@ def coco_remove(args):
                            annotations=annotations)
 
 
-def ls_export(args):
-    cvtk.ls.export(args.project,
-                   output=args.output,
-                   format=args.format,
-                   url=args.url,
-                   token=args.token)
 
-
-def ls_backend(args):
-    cvtk.ls.generate_app(args.project,
-                         source=args.source,
-                         label=args.label,
-                         model=args.model,
-                         weights=args.weights,
-                         vanilla=args.vanilla)
 
 
 
@@ -105,13 +99,22 @@ def main():
     parser_model.set_defaults(func=deploy_model)
 
     parser_demoapp = subparsers.add_parser('deploy-demoapp')
-    parser_demoapp.add_argument('--project', type=str, required=True)
-    parser_demoapp.add_argument('--source', type=str, required=True)
+    parser_demoapp.add_argument('--app_name', '--project', dest='app_name', type=str, required=True)
+    parser_demoapp.add_argument('--runner_script', '--source', dest='runner_script', type=str, required=True)
     parser_demoapp.add_argument('--label', type=str, required=True)
-    parser_demoapp.add_argument('--model', type=str, required=True)
-    parser_demoapp.add_argument('--weights', type=str, required=True)
+    parser_demoapp.add_argument('--weight', '--weights', dest='weight', type=str, required=True)
     parser_demoapp.add_argument('--vanilla', action='store_true', default=False)
     parser_demoapp.set_defaults(func=deploy_demoapp)
+
+    parser_ls_backend = subparsers.add_parser('deploy-ls-mlbackend')
+    parser_ls_backend.add_argument('--project', type=str, required=True)
+    parser_ls_backend.add_argument('--source', type=str, required=True)
+    parser_ls_backend.add_argument('--label', type=str, required=True)
+    parser_ls_backend.add_argument('--model', type=str, default=None)
+    parser_ls_backend.add_argument('--weights', type=str, required=True)
+    parser_ls_backend.add_argument('--vanilla', action='store_true', default=False)
+    parser_ls_backend.set_defaults(func=deploy_ls_mlbackend)
+
 
     parser_text_split = subparsers.add_parser('text-split')
     parser_text_split.add_argument('--input', type=str, required=True)
@@ -152,22 +155,8 @@ def main():
     parser_coco_remove.add_argument('--annotations', type=str, required=False)
     parser_coco_remove.set_defaults(func=coco_remove)
 
-    parser_ls_export = subparsers.add_parser('ls-export')
-    parser_ls_export.add_argument('--project', type=str, required=True)
-    parser_ls_export.add_argument('--output', type=str, required=True)
-    parser_ls_export.add_argument('--format', type=str, required=False, default='coco')
-    parser_ls_export.add_argument('--url', type=str, required=False, default=None)
-    parser_ls_export.add_argument('--token', type=str, required=False, default=None)
-    parser_ls_export.set_defaults(func=ls_export)
 
-    parser_ls_backend = subparsers.add_parser('ls-backend')
-    parser_ls_backend.add_argument('--project', type=str, required=True)
-    parser_ls_backend.add_argument('--source', type=str, required=True)
-    parser_ls_backend.add_argument('--label', type=str, required=True)
-    parser_ls_backend.add_argument('--model', type=str, default=True)
-    parser_ls_backend.add_argument('--weights', type=str, required=True)
-    parser_ls_backend.add_argument('--vanilla', action='store_true', default=False)
-    parser_ls_backend.set_defaults(func=ls_backend)
+
 
 
     args = parser.parse_args()

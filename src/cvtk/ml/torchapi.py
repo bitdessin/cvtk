@@ -13,7 +13,9 @@ PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 import torch
 import torchvision
 import torchvision.transforms.v2
-import cvtk
+
+from . import data as cvtk_ml_data
+
 
 def _resolve_image_path(img_path, image_base):
     if img_path is None or img_path == '':
@@ -435,11 +437,11 @@ class BaseRunner():
         return device
 
     def _init_datalabel(self, datalabel):
-        if isinstance(datalabel, cvtk.ml.data.DataLabel):
+        if isinstance(datalabel, cvtk_ml_data.DataLabel):
             return datalabel
 
         if isinstance(datalabel, str) or isinstance(datalabel, list) or isinstance(datalabel, tuple):
-            return cvtk.ml.data.DataLabel(datalabel)
+            return cvtk_ml_data.DataLabel(datalabel)
 
         raise TypeError('Invalid datalabel type: {}'.format(type(datalabel)))
 
@@ -637,7 +639,7 @@ class ClsRunner(BaseRunner):
             dl_path = os.path.splitext(weights)[0] + '.dl.txt'
 
             if os.path.exists(dl_path):
-                datalabel_loaded = cvtk.ml.data.DataLabel(dl_path)
+                datalabel_loaded = cvtk_ml_data.DataLabel(dl_path)
                 __set_output(module, len(datalabel_loaded))
                  
             state_dict = torch.load(weights, map_location='cpu')

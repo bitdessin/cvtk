@@ -19,7 +19,7 @@ def train(
 	temp_dpath = os.path.splitext(output_weights)[0]
 
 	datalabel = cvtk.ml.data.DataLabel(label)
-	model = cvtk.ml.torchdet.SegmRunner(
+	model = cvtk.ml.torchdetapi.SegmRunner(
 		datalabel,
 		model=model_name,
 		weights=input_weights,
@@ -27,11 +27,11 @@ def train(
 		device=device,
 	)
 
-	train_loader = cvtk.ml.torchdet.DataLoader(
-		cvtk.ml.torchdet.Dataset(
+	train_loader = cvtk.ml.torchdetapi.DataLoader(
+		cvtk.ml.torchdetapi.Dataset(
 			datalabel,
 			train,
-			transform=cvtk.ml.torchdet.DataTransform(is_train=True),
+			transform=cvtk.ml.torchdetapi.DataTransform(is_train=True),
 		),
 		batch_size=batch_size,
 		num_workers=num_workers,
@@ -40,11 +40,11 @@ def train(
 
 	valid_loader = None
 	if valid is not None:
-		valid_loader = cvtk.ml.torchdet.DataLoader(
-			cvtk.ml.torchdet.Dataset(
+		valid_loader = cvtk.ml.torchdetapi.DataLoader(
+			cvtk.ml.torchdetapi.Dataset(
 				datalabel,
 				valid,
-				transform=cvtk.ml.torchdet.DataTransform(is_train=False),
+				transform=cvtk.ml.torchdetapi.DataTransform(is_train=False),
 			),
 			batch_size=batch_size,
 			num_workers=num_workers,
@@ -53,11 +53,11 @@ def train(
 
 	test_loader = None
 	if test is not None:
-		test_loader = cvtk.ml.torchdet.DataLoader(
-			cvtk.ml.torchdet.Dataset(
+		test_loader = cvtk.ml.torchdetapi.DataLoader(
+			cvtk.ml.torchdetapi.Dataset(
 				datalabel,
 				test,
-				transform=cvtk.ml.torchdet.DataTransform(is_train=False),
+				transform=cvtk.ml.torchdetapi.DataTransform(is_train=False),
 			),
 			batch_size=batch_size,
 			num_workers=num_workers,
@@ -80,7 +80,7 @@ def inference(
 	device='auto'
 ):
 	datalabel = cvtk.ml.data.DataLabel(label)
-	model = cvtk.ml.torchdet.SegmRunner(
+	model = cvtk.ml.torchdetapi.SegmRunner(
 		datalabel,
 		model=model_name,
 		weights=model_weights,
@@ -88,11 +88,11 @@ def inference(
 		device=device,
 	)
 
-	data_loader = cvtk.ml.torchdet.DataLoader(
-		cvtk.ml.torchdet.Dataset(
+	data_loader = cvtk.ml.torchdetapi.DataLoader(
+		cvtk.ml.torchdetapi.Dataset(
 			datalabel,
 			data,
-			transform=cvtk.ml.torchdet.DataTransform(is_train=False),
+			transform=cvtk.ml.torchdetapi.DataTransform(is_train=False),
 		),
 		batch_size=batch_size,
 		num_workers=num_workers,

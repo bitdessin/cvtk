@@ -17,7 +17,7 @@ class TestScript(unittest.TestCase):
         script = os.path.join(dpath, 'script.py')
         
         if code_generator == 'api':
-            cvtk.ml.deploy_model(script, backend='mmdet', task=task, vanilla=vanilla)
+            cvtk.ml.deploy.runner(script, backend='mmdet', task=task, vanilla=vanilla)
         elif code_generator == 'script':
             cmd_ = ['cvtk', 'deploy-model', '--backend', 'mmdet', '--task', task, '--script', script]
             if vanilla:
@@ -29,6 +29,7 @@ class TestScript(unittest.TestCase):
                     '--train', testutils.data[task]['train'],
                     '--valid', testutils.data[task]['valid'],
                     '--test', testutils.data[task]['test'],
+                    '--epoch', '5',
                     '--output_weights', os.path.join(dpath, 'sb.pth')])
 
         testutils.run_cmd(['python', script, 'inference',
@@ -60,6 +61,20 @@ class TestScript(unittest.TestCase):
 
     def test_segm_mmdet_cmd(self):
         self.__run_proc('script', True, 'segm')
+
+    def test_vanilla_runner_embeds_cvtk_data_alias(self):
+        for task in ['det', 'seg']:
+            script = os.path.join(self.ws, f'vanilla_alias_{task}.py')
+            cvtk.ml.deploy.runner(script, backend='mmdet', task=task, vanilla=True)
+
+            with open(script, 'r') as fh:
+                source = fh.read()
+
+            self.assertIn('class Bbox', source)
+            self.assertIn('class ImageRecord', source)
+            self.assertIn('def calc_stats', source)
+            self.assertNotIn('cvtk_data.', source)
+            self.assertNotIn('cvtk_ml_data.', source)
 
 
 class TestMMDet(unittest.TestCase):
@@ -109,7 +124,7 @@ class TestMMDet(unittest.TestCase):
                                                    cvtk.ml.mmdetapi.DataPipeline(is_train=False, with_bbox=True, with_mask=with_mask)),
                         phase='test', batch_size=batch_size, num_workers=num_workers)
 
-        model.train(train, valid, test, epoch=10)
+        model.train(train, valid, test, epoch=5)
         model.save(f'{output_pfx}.pth')
 
         if os.path.exists(f'{output_pfx}.train_stats.train.txt'):

@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import os
 import json
 import gzip
@@ -9,7 +8,6 @@ import warnings
 import inspect
 from typing import Any
 import numpy as np
-
 import filetype
 import PIL.Image
 import PIL.ImageFile
@@ -23,7 +21,9 @@ from torchvision.models.detection.retinanet import RetinaNetClassificationHead
 from torchvision.models.detection.ssd import SSDClassificationHead
 from torchvision.models.detection.ssdlite import SSDLiteClassificationHead
 
-import cvtk
+from .. import data as cvtk_data
+from .. import utils as cvtk_utils
+from . import data as cvtk_ml_data
 
 
 def _resolve_image_path(img_path: str | None, image_base: str) -> str | None:
@@ -66,7 +66,7 @@ class Dataset(torch.utils.data.Dataset):
     """
     def __init__(
         self,
-        datalabel: cvtk.ml.data.DataLabel | str | list[str] | tuple[str],
+        datalabel: cvtk_ml_data.DataLabel | str | list[str] | tuple[str],
         dataset: str | list[str] | tuple[str],
         transform: DataTransform | torchvision.transforms.Compose | None = None,
         image_root: str | None = None
@@ -74,7 +74,7 @@ class Dataset(torch.utils.data.Dataset):
         """Create a detection dataset.
 
         Args:
-            datalabel (cvtk.ml.data.DataLabel|str|list|tuple): A DataLabel,
+            datalabel (cvtk_ml_data.DataLabel|str|list|tuple): A DataLabel,
                 label file, or list of class names.
             dataset (str|list|tuple): COCO annotation file, image file, image
                 directory, text file of image paths, or a list of image paths.
@@ -87,10 +87,10 @@ class Dataset(torch.utils.data.Dataset):
             ValueError: If no images can be loaded from ``dataset``.
             TypeError: If ``datalabel`` or ``dataset`` has an unsupported type.
         """
-        if isinstance(datalabel, cvtk.ml.data.DataLabel):
+        if isinstance(datalabel, cvtk_ml_data.DataLabel):
             self.datalabel = datalabel
         else:
-            self.datalabel = cvtk.ml.data.DataLabel(datalabel)
+            self.datalabel = cvtk_ml_data.DataLabel(datalabel)
 
         if isinstance(transform, DataTransform):
             transform = transform.pipeline
@@ -183,7 +183,7 @@ class Dataset(torch.utils.data.Dataset):
             resolved_path = _resolve_image_path(im.get('file_name'), image_base)
             image_id_by_path[os.path.abspath(resolved_path)] = im['id']
 
-        image_dataset = cvtk.data.ImageDataset.from_coco(coco_dict, image_root=image_base)
+        image_dataset = cvtk_data.ImageDataset.from_coco(coco_dict, image_root=image_base)
 
         self.samples = []
         for record in image_dataset.records:
@@ -324,7 +324,7 @@ class DetRunner():
     """
     def __init__(
         self,
-        datalabel: cvtk.ml.data.DataLabel | str | list[str] | tuple[str],
+        datalabel: cvtk_ml_data.DataLabel | str | list[str] | tuple[str],
         model: str | torch.nn.Module = 'fasterrcnn_resnet50_fpn',
         weights: str | Any | None = None,
         workspace: str | None = None,
@@ -373,12 +373,12 @@ class DetRunner():
 
     def _init_datalabel(
         self,
-        datalabel: cvtk.ml.data.DataLabel | str | list[str] | tuple[str]
-    ) -> cvtk.ml.data.DataLabel:
-        if isinstance(datalabel, cvtk.ml.data.DataLabel):
+        datalabel: cvtk_ml_data.DataLabel | str | list[str] | tuple[str]
+    ) -> cvtk_ml_data.DataLabel:
+        if isinstance(datalabel, cvtk_ml_data.DataLabel):
             return datalabel
         if isinstance(datalabel, (str, list, tuple)):
-            return cvtk.ml.data.DataLabel(datalabel)
+            return cvtk_ml_data.DataLabel(datalabel)
         raise TypeError(f'Invalid datalabel type: {type(datalabel)}')
 
 
@@ -596,7 +596,7 @@ class DetRunner():
         self,
         dataloader: torch.utils.data.DataLoader,
         cutoff: float = 0.5
-    ) -> cvtk.data.ImageDataset:
+    ) -> cvtk_data.ImageDataset:
         self.model.eval()
         records = []
 
@@ -626,8 +626,8 @@ class DetRunner():
                         if label_index < 0 or label_index >= len(self.datalabel.labels):
                             continue
 
-                        bbox = cvtk.data.Bbox.from_xyxy(*box.tolist(), imsize=imsize)
-                        ann = cvtk.data.InstanceAnnotation(
+                        bbox = cvtk_data.Bbox.from_xyxy(*box.tolist(), imsize=imsize)
+                        ann = cvtk_data.InstanceAnnotation(
                             label=self.datalabel[label_index],
                             bbox=bbox,
                             segm=None,
@@ -636,14 +636,14 @@ class DetRunner():
                         annotations.append(ann)
 
                     records.append(
-                        cvtk.data.ImageRecord(
+                        cvtk_data.ImageRecord(
                             source=pathlib.Path(img_path),
                             annotations=annotations,
                             size=imsize,
                         )
                     )
 
-        return cvtk.data.ImageDataset(records=records)
+        return cvtk_data.ImageDataset(records=records)
 
 
     def train(
@@ -784,7 +784,7 @@ class DetRunner():
         output_dir = self.workspace if self.workspace is not None else os.getcwd()
         os.makedirs(output_dir, exist_ok=True)
         pred_coco_fpath = os.path.join(output_dir, 'test_outputs.coco.json')
-        cvtk.utils.save_json(pred_coco, pred_coco_fpath, indent=4, ensure_ascii=False)
+        cvtk_utils.save_json(pred_coco, pred_coco_fpath, indent=4, ensure_ascii=False)
 
         if len(pred_coco['annotations']) == 0:
             self.test_stats = {
@@ -793,7 +793,7 @@ class DetRunner():
             }
             return self.test_stats
 
-        self.test_stats = cvtk.data.coco.calc_stats(
+        self.test_stats = cvtk_data.coco.calc_stats(
             gt_ann_file,
             pred_coco_fpath,
             image_by='id',
@@ -845,7 +845,7 @@ class DetRunner():
         cutoff: float = 0.5,
         batch_size: int = 4,
         num_workers: int = 0
-    ) -> cvtk.data.ImageDataset:
+    ) -> cvtk_data.ImageDataset:
         """Run inference and return an :class:`cvtk.data.ImageDataset`.
 
         Args:
@@ -881,7 +881,7 @@ class SegmRunner(DetRunner):
 
     def __init__(
         self,
-        datalabel: cvtk.ml.data.DataLabel | str | list[str] | tuple[str],
+        datalabel: cvtk_ml_data.DataLabel | str | list[str] | tuple[str],
         model: str | torch.nn.Module = 'maskrcnn_resnet50_fpn',
         weights: str | Any | None = None,
         workspace: str | None = None,
@@ -890,7 +890,7 @@ class SegmRunner(DetRunner):
         """Create a torchvision Mask R-CNN segmentation runner.
 
         Args:
-            datalabel (cvtk.ml.data.DataLabel|str|list|tuple): A DataLabel,
+            datalabel (cvtk_ml_data.DataLabel|str|list|tuple): A DataLabel,
                 label file, or list of class names.
             model (str|torch.nn.Module): Torchvision segmentation model name or
                 an instantiated module.
@@ -927,7 +927,7 @@ class SegmRunner(DetRunner):
         self,
         dataloader: torch.utils.data.DataLoader,
         cutoff: float = 0.5
-    ) -> cvtk.data.ImageDataset:
+    ) -> cvtk_data.ImageDataset:
         self.model.eval()
         records = []
 
@@ -959,14 +959,14 @@ class SegmRunner(DetRunner):
                         if label_index < 0 or label_index >= len(self.datalabel.labels):
                             continue
 
-                        bbox = cvtk.data.Bbox.from_xyxy(*box.tolist(), imsize=imsize)
+                        bbox = cvtk_data.Bbox.from_xyxy(*box.tolist(), imsize=imsize)
                         segm = None
                         if i < len(masks):
                             mask_bin = (masks[i, 0] >= 0.5).astype(np.uint8)
                             if mask_bin.any():
-                                segm = cvtk.data.Segm.from_mask(mask_bin)
+                                segm = cvtk_data.Segm.from_mask(mask_bin)
 
-                        ann = cvtk.data.InstanceAnnotation(
+                        ann = cvtk_data.InstanceAnnotation(
                             label=self.datalabel[label_index],
                             bbox=bbox,
                             segm=segm,
@@ -975,12 +975,12 @@ class SegmRunner(DetRunner):
                         annotations.append(ann)
 
                     records.append(
-                        cvtk.data.ImageRecord(
+                        cvtk_data.ImageRecord(
                             source=pathlib.Path(img_path),
                             annotations=annotations,
                             size=imsize,
                         )
                     )
 
-        return cvtk.data.ImageDataset(records=records)
+        return cvtk_data.ImageDataset(records=records)
 

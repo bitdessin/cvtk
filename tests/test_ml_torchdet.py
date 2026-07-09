@@ -97,7 +97,7 @@ class TestTorchDet(unittest.TestCase):
 				shuffle=False,
 			)
 
-		model.train(train_loader, valid_loader, test_loader, epoch=10)
+		model.train(train_loader, valid_loader, test_loader, epoch=5)
 		model.save(f'{output_pfx}.pth')
 
 		self.assertTrue(os.path.exists(f'{output_pfx}.pth'))
