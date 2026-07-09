@@ -10,7 +10,9 @@ import PIL.Image
 import pycocotools
 import pycocotools.coco
 import pycocotools.cocoeval
-import cvtk
+
+from .. import utils as cvtk_utils
+from . import _im as cvtk_data
 
 
 _METRICS_LABELS = ['AP@[0.50:0.95|all|100]',
@@ -90,7 +92,7 @@ def crop(
             raise ValueError(f'Image with ID {ann["image_id"]} not found in COCO annotation data.')
         
         im = PIL.Image.open(im_path)
-        x1, y1, x2, y2 = cvtk.data.Bbox.xywh2xyxy(ann['bbox'])
+        x1, y1, x2, y2 = cvtk_data.Bbox.xywh2xyxy(ann['bbox'])
         x1 = max(0, math.floor(x1))
         y1 = max(0, math.floor(y1))
         x2 = min(math.ceil(x2), im.size[0])
@@ -142,7 +144,7 @@ def combine(
     category_id = 1
     annotation_id = 1
     
-    for input_file in cvtk.utils.as_list(input):
+    for input_file in cvtk_utils.as_list(input):
         image_idmap = {}
         category_idmap = {}
         cocodata = _load_coco(input_file, image_root=image_root)
@@ -170,7 +172,7 @@ def combine(
             annotation_id += 1
     
     if output is not None:
-        cvtk.utils.save_json(merged_coco, output, indent=indent, ensure_ascii=ensure_ascii)
+        cvtk_utils.save_json(merged_coco, output, indent=indent, ensure_ascii=ensure_ascii)
     return merged_coco
 
 
@@ -241,7 +243,7 @@ def split(
     
     if output is not None:
         for i in range(len(data_subsets)):
-            cvtk.utils.save_json(data_subsets[i], f'{output}.{i}', indent=indent, ensure_ascii=ensure_ascii)
+            cvtk_utils.save_json(data_subsets[i], f'{output}.{i}', indent=indent, ensure_ascii=ensure_ascii)
 
     return data_subsets
 
@@ -295,7 +297,7 @@ def reindex(
             ann['category_id'] = category_idmap[ann['category_id']]
 
     if output is not None:
-        cvtk.utils.save_json(cocodata, output, indent=indent, ensure_ascii=ensure_ascii)
+        cvtk_utils.save_json(cocodata, output, indent=indent, ensure_ascii=ensure_ascii)
     return cocodata
 
 
@@ -376,7 +378,7 @@ def remove(
     cocodata['annotations'] = cocodata_anns
 
     if output is not None:
-        cvtk.utils.save_json(cocodata, output, indent=indent, ensure_ascii=ensure_ascii)  
+        cvtk_utils.save_json(cocodata, output, indent=indent, ensure_ascii=ensure_ascii)  
     return cocodata
 
 
@@ -423,7 +425,7 @@ def stats(
     }
 
     if output is not None:
-        cvtk.utils.save_json(stats, output, indent=indent, ensure_ascii=ensure_ascii)
+        cvtk_utils.save_json(stats, output, indent=indent, ensure_ascii=ensure_ascii)
     return stats
 
 

@@ -58,6 +58,41 @@ To enable full detection and segmentation functionality, install the OneDL MMDet
     pip install cvtk[full]
 
 
+
+Label Studio Backend (Optional)
+*******************************
+
+If you want to deploy a Label Studio ML backend with **cvtk**,
+install the Label Studio runtime dependencies as well.
+
+You can either install everything via the ``full`` extra,
+or install Label Studio packages explicitly:
+
+.. code-block:: bash
+
+    # includes MMDetection + Label Studio dependencies
+    pip install cvtk[full]
+
+    # OR install Label Studio stack explicitly
+    pip install label-studio-sdk label-studio-ml label-studio-tools
+
+
+.. note::
+
+    Current Label Studio backend deployment in **cvtk** supports
+    detection and instance segmentation model sources.
+    Classification source deployment is not supported in this flow.
+
+
+.. note::
+
+    When running a generated Label Studio backend, ensure these environment
+    variables are configured in your runtime environment:
+
+    - ``LABEL_STUDIO_BASE_DATA_DIR``
+    - ``LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT``
+
+
 Troubleshooting Installation Issues
 ***********************************
 

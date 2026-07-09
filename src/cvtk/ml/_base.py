@@ -1,7 +1,4 @@
-import os
-import importlib
 import random
-import cvtk
 
 
 def split_dataset(
@@ -117,77 +114,3 @@ def split_dataset(
                     fh.write(data_record + '\n')
     
     return data_subsets
-
-
-def deploy_model(
-    script_name: str,
-    backend: str='torch',
-    task: str='cls',
-    vanilla: bool=False
-) -> None:
-    """Generate source code for training and inference with PyTorch or MMDetection.
-
-    Creates a Python script template for machine learning tasks (classification, object detection,
-    instance segmentation) with either PyTorch or MMDetection framework. The generated script can
-    include cvtk dependencies (simple) or be fully standalone with embedded cvtk code (vanilla).
-
-    Two script types:
-    - vanilla=False (default): Compact script that imports from cvtk package.
-      Suitable for learning and prototyping. Requires cvtk installed.
-    - vanilla=True: Standalone script with all cvtk function definitions embedded.
-      Larger file but no external cvtk dependency. Allows full customization and modification.
-
-    Args:
-        script_name (str): Output file path to save the generated script.
-            '.py' extension added if not present.
-        backend (str): ML framework. Options: 'torch' (PyTorch) or 'mmdet'/'mmdetection' (MMDetection).
-            Default 'torch'.
-        task (str): Machine learning task. Options:
-            - 'cls'/'classification': Image classification with PyTorch
-            - 'det'/'detection': Object detection with MMDetection
-            - 'seg'/'segmentation': Instance segmentation with MMDetection
-            Default 'cls'.
-        vanilla (bool): Generate standalone script with embedded cvtk code (True) or
-            compact script with cvtk imports (False). Default False.
-
-    Returns:
-        None. Script file is created at script_name path.
-
-    Raises:
-        ValueError: If task or backend not supported.
-        FileNotFoundError: If template file not found.
-
-    Examples:
-        >>> from cvtk.ml import deploy_model
-        >>> # Generate classification script with cvtk imports
-        >>> deploy_model('my_classifier.py', backend='torch', task='cls')
-        >>> # Generate standalone detection script
-        >>> deploy_model('detector_standalone.py', backend='mmdet', task='det', vanilla=True)
-        >>> # Generate segmentation script
-        >>> deploy_model('segmenter.py', backend='mmdet', task='seg', vanilla=False)
-    """
-    if task not in ['cls', 'classification', 'det', 'detection', 'seg', 'segm', 'segmentation']:
-        raise ValueError('The current version only support classification (`cls`), detection (`det`), and segmentation (`seg`/`segm`/`segmentation`) tasks.')
-    else:
-        task = task[:3] if task not in ['cls', 'classification'] else 'cls'
-    if backend not in ['torch', 'mmdet', 'mmdetection']:
-        raise ValueError('The current version only support PyTorch (`torch`) and MMDetection (`mmdet`) backends.')
-    else:
-        backend = backend[:5]
-    
-    if not script_name.endswith('.py'):
-        script_name += '.py'
-    
-    with open(importlib.resources.files('cvtk').joinpath(f'tmpl/_{backend}_{task}.py'), 'r') as infh:
-        tmpl_lines = infh.readlines()
-    
-    # replace script name
-    tmpl_lines = [line.replace('__SCRIPTNAME__', os.path.basename(script_name)) for line in tmpl_lines]
-    
-    # extract and embed cvtk function definitions
-    if vanilla:
-        tmpl_lines = cvtk.utils.expand_cvtk_sources(tmpl_lines)
-    
-    # write output        
-    with open(script_name, 'w') as fh:
-        fh.writelines(tmpl_lines)    

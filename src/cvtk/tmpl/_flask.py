@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import pathlib
 import hashlib
@@ -6,18 +7,31 @@ from flask import Flask, flash, request, redirect, url_for, send_from_directory,
 from werkzeug.utils import secure_filename
 import numpy as np
 import skimage.measure
-#%CVTK%# IF TASK=cls
-from cvtk.ml.torchutils import ModuleCore
-#%CVTK%# ENDIF
-#%CVTK%# IF TASK=det,segm
-from cvtk.ml.mmdetutils import ModuleCore
-#%CVTK%# ENDIF
+
+APP_ROOT = pathlib.Path(__file__).resolve().parent
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
+
+from __MODULE_IMPORT__ import __MODULE_CLASS__ as MODULECORE
+
 
 # application variables
-APP_ROOT = pathlib.Path(__file__).resolve().parent
 APP_STORAGE = os.path.join(APP_ROOT, 'static', 'storage')
 APP_TEMP = os.path.join(APP_ROOT, 'tmp')
-MODEL = ModuleCore('__DATALABEL__', '__MODELCFG__','__MODELWEIGHT__', workspace=APP_TEMP)
+
+#%CVTK%# IF TASK=cls,det,segm
+#%CVTK%# IF BACKEND=torch
+MODEL = MODULECORE(os.path.join(APP_ROOT, '__DATALABEL__'),
+                   '__MODELCFG__',
+                   os.path.join(APP_ROOT, '__MODELWEIGHT__'), workspace=APP_TEMP)
+#%CVTK%# ENDIF
+
+#%CVTK%# IF BACKEND=mmdet
+MODEL = MODULECORE(os.path.join(APP_ROOT, '__DATALABEL__'),
+                   os.path.join(APP_ROOT, '__MODELCFG__'),
+                   os.path.join(APP_ROOT, '__MODELWEIGHT__'), workspace=APP_TEMP)
+#%CVTK%# ENDIF
+#%CVTK%# ENDIF
 if not os.path.exists(APP_STORAGE):
     os.makedirs(APP_STORAGE)
 if not os.path.exists(APP_TEMP):
@@ -45,30 +59,38 @@ def inference():
             if image_fpath is not None:
 
 #%CVTK%# IF TASK=cls
-                output = MODEL.inference(image_fpath, value='prob+label', format='pandas')
-                output = json.loads(output.to_json(orient='records'))
-                output = output[0]
-                del output['prediction']
-                output_table = []
-                for cl, prob in output.items():
-                    output_table.append({'label': cl, 'prob': float(prob)})
-                output = sorted(output_table, key=lambda x: x['prob'], reverse=True)
+                output = MODEL.inference(image_fpath, format='pandas')
+                # Convert DataFrame row to list of dicts with label and prob, sorted by prob
+                if len(output) > 0:
+                    row = output.iloc[0]
+                    output_table = [{'label': label, 'prob': float(prob)} for label, prob in row.items()]
+                    output = sorted(output_table, key=lambda x: x['prob'], reverse=True)
+                else:
+                    output = []
 #%CVTK%# ENDIF
 
 #%CVTK%# IF TASK=det,segm
                 output = MODEL.inference(image_fpath, cutoff=0.5)
+                # Get first result (handle both list and ImageDataset by iterating)
+                first_result = next(iter(output))
                 output = {
                     'image': os.path.join('static', 'storage', os.path.basename(image_fpath)),
-                    'annotations': [_ for _ in output[0].annotations]
+                    'annotations': []
                 }
-                for i in range(len(output['annotations'])):
-                    if 'mask' in output['annotations'][i] and output['annotations'][i]['mask'] is not None:
-                        output['annotations'][i]['polygons'] = []
-                        for contour in skimage.measure.find_contours(np.array(output['annotations'][i]['mask']), 0.5):
-                            output['annotations'][i]['polygons'].append([[c[1], c[0]] for c in contour.tolist()])
-                        output['annotations'][i]['mask'] = None # data is too large
+                # Convert InstanceAnnotation objects to dictionaries and process masks
+                for ann in first_result.annotations:
+                    ann_dict = ann.to_dict(segm_format='mask')
+                    # Extract polygons from mask if available
+                    if ann_dict['segm'] is not None:
+                        ann_dict['polygons'] = []
+                        try:
+                            for contour in skimage.measure.find_contours(np.array(ann_dict['segm']), 0.5):
+                                ann_dict['polygons'].append([[c[1], c[0]] for c in contour.tolist()])
+                        except Exception:
+                            pass
+                        ann_dict['segm'] = None  # data is too large
+                    output['annotations'].append(ann_dict)
 #%CVTK%# ENDIF
-
     return jsonify({'data': output})
 
 
@@ -92,6 +114,6 @@ def save_image(req_file):
 """
 Example:
 
-gunicorn --bind 0.0.0.0:8600  main:app --reload
+TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1 gunicorn --bind 0.0.0.0:8600  main:app --reload
 """
 

@@ -2,8 +2,8 @@ from ._base import *
 from . import data
 from . import torchapi
 from . import torchdetapi
+from . import deploy
 
-# load mmdet utils if the dependencies are available
 try:
     import mmdet
     import mmengine
