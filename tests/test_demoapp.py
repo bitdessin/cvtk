@@ -155,7 +155,7 @@ class TestDemoAppDeploymentBase(unittest.TestCase):
         if code_generator == 'api':
             cvtk.ml.deploy.runner(script_path, backend=backend, task=task, vanilla=vanilla)
         else:  # script
-            cmd = ['cvtk', 'deploy-model', '--backend', backend, '--task', task, '--script', script_path]
+            cmd = ['cvtk', 'deploy-model', '--backend', backend, '--task', task, '--script_name', script_path]
             if vanilla:
                 cmd.append('--vanilla')
             testutils.run_cmd(cmd)
@@ -178,10 +178,8 @@ class TestDemoAppDeploymentBase(unittest.TestCase):
         if code_generator == 'api':
             cvtk.ml.deploy.demoapp(app_name, script_path, weights_path, label_path)
         else:  # script
-            cmd = ['cvtk', 'deploy-demoapp', '--app_name', app_name, '--runner_script', script_path, 
+            cmd = ['cvtk', 'deploy-demoapp', '--app_name', app_name, '--script_name', script_path,
                    '--label', label_path, '--weights', weights_path]
-            if vanilla:
-                cmd.append('--vanilla')
             testutils.run_cmd(cmd)
         
         return app_name, weights_path, label_path

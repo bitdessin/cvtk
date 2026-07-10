@@ -14,18 +14,21 @@ The overall workflow and even the generated source code are very similar to that
     The **cvtk** package internally uses functions from
     **torch** (`PyTorch <https://pytorch.org/>`_),
     **mmcv** (`MMCV <https://mmcv.readthedocs.io/en/latest/>`_),
+    **mmengine** (`MMEngine <https://mmengine.readthedocs.io/en/latest/>`_),
     and **mmdet** (`MMDetection <https://mmdetection.readthedocs.io/en/latest/>`_) packages
     for instance segmentation tasks.
-    Make sure that **torch**, **mmdet**, and **mmcv** are installed correctly
+    Make sure that **torch**, **mmcv**, **mmengine**, and **mmdet** are installed correctly
     without any errors before using **cvtk**.
 
     .. code:: python
 
         import torch
         import mmcv
+        import mmengine
         import mmdet
         print(f"torch {torch.__version__}")
         print(f"mmcv {mmcv.__version__}")
+        print(f"mmengine {mmengine.__version__}")
         print(f"mmdet {mmdet.__version__}")
 
 
@@ -33,12 +36,12 @@ The overall workflow and even the generated source code are very similar to that
 Preparation
 ***********
 
-The ``cvtk create`` command can automatically generate Python source code for instance segmentation.
+The ``cvtk deploy-model`` command can automatically generate Python source code for instance segmentation.
 
 
 .. code-block:: sh
     
-    cvtk create --script segm.py --task segm
+    cvtk deploy-model --script_name segm.py --backend mmdet --task segm
 
 
 This command generates a file named :file:`segm.py`,  
@@ -54,12 +57,12 @@ or by running the ``mim search`` command (e.g., ``mim search mmdet --model "mask
 
 
 For users already familiar with deep learning,
-it is recommended to run ``cvtk create`` with the ``--vanilla`` argument.
+it is recommended to run ``cvtk deploy-model`` with the ``--vanilla`` argument.
 
 
 .. code-block:: sh
     
-    cvtk create --script segm.py --task segm --vanilla
+    cvtk deploy-model --script_name segm.py --backend mmdet --task segm --vanilla
 
 
 
@@ -91,7 +94,7 @@ Note that the datasets must be in COCO format with segmentation mask coordinates
 
 .. code-block:: sh
 
-    python det.py train \
+    python segm.py train \
         --label ./data/strawberry/label.txt \
         --train ./data/strawberry/train/segm.json \
         --valid ./data/strawberry/valid/segm.json \
@@ -207,8 +210,8 @@ or a directory containing images.
 .. code-block:: sh
 
     python segm.py inference \
-        --label ./data/fruits/label.txt \
-        --data ./data/fruits/test.txt \
+        --label ./data/strawberry/label.txt \
+        --data ./data/strawberry/test/images \
         --model_weights ./outputs/strawberry.pth \
         --output ./outputs/inference_results
 
@@ -217,7 +220,7 @@ The inference results for each image (i.e., images with predicted segmentation m
 will be saved in the :file:`inference_results` directory.
 Additionally, a COCO format file containing all predicted annotations,
 including bounding boxes and segmentation masks,
-will be saved as :file:`instances.json`.
+will be saved as :file:`instances.coco.json`.
 The following are examples of the output images.
 
 

@@ -1,9 +1,9 @@
 Utils for Label Studio
 ######################
 
-The **cvtk** package provides several command-line utilities for interacting with Label Studio,
-which facilitate exporting annotations and integrating machine learning models
-with Label Studio for assisted labeling.
+The **cvtk** package provides a command-line utility for generating
+Label Studio ML backend source code so trained detection or segmentation models
+can assist annotation.
 
 To enable these utilities to communicate with Label Studio,
 several environment variables must be set.
@@ -15,7 +15,7 @@ We recommend setting the following variables before using any of these utilities
     export LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
     export LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT="/Users/USERNAME/path/to/ws"
     export LABEL_STUDIO_BASE_DATA_DIR="/U/path/to/labelstudio-data"
-    export LABEL_STUDIO_URL="https://0.0.0.0:8080"
+    export LABEL_STUDIO_URL="http://localhost:8080"
     export LABEL_STUDIO_API_KEY="f6dea26f0a0f81883e04681b4e649c600fe50fc"
 
 
@@ -29,7 +29,7 @@ start a Python interpreter and execute the commands below.
 
     >>> import os
     >>> from label_studio.core.utils.params import get_base_data_dir
-    >>> os.path.abspath(user_data_dir("label-studio"))
+    >>> os.path.abspath(get_base_data_dir())
     ~/.local/share/label-studio
 
 
@@ -46,34 +46,9 @@ The API key is displayed in the "API Key" section of the page.
 Annotation Export
 *****************
 
-Annotations from Label Studio can be exported via the web interface.  
-For convenient access from the command line, the **cvtk** package provides
-the ``cvtk ls-export`` utility, which requires the ``--project`` and ``--output`` arguments.
-
-
-.. code-block:: sh
-
-    cvtk ls-export \
-        --project 0 \
-        --output ./output/instances.coco.json
-
-
-This command exports the annotations from the project with ID 0
-and saves them to the specified file (:file:`./output/instances.coco.json`).
-
-Users can also provide the URL and API key manually instead of using environment variables.  
-For example, if the Label Studio server is running on ``localhost`` at port ``8080``
-and the API key is ``f6dea26f0a0f81883e04681b4e649c600fe50fc``,
-the command can be executed as follows:
-
-
-.. code-block:: sh
-
-    cvtk ls-export \
-        --project 0 \
-        --output ./output/instances.coco.json \
-        --url http://localhost:8080 \
-        --token f6dea26f0a0f81883e04681b4e649c600fe50fc
+Annotations from Label Studio can be exported from the Label Studio web interface.
+Export the annotations in COCO format when preparing data for the detection
+or segmentation tutorials.
 
 
 
@@ -83,7 +58,7 @@ ML-Assisted Labeling
 The **cvtk** package allows users to integrate trained machine learning models
 with Label Studio for ML-Assisted Labeling.
 This enables models to assist in the annotation process within Label Studio.
-To do this, use the ``cvtk ls-backend`` command,
+To do this, use the ``cvtk deploy-ls-mlbackend`` command,
 which generates the necessary source code and supporting files for backend integration.
 
 Assume that a source code file :file:`det.py` for object detection has already been created
@@ -97,7 +72,7 @@ in the directory specified by the ``--project`` argument.
 
 .. code-block:: sh
 
-    cvtk ls-backend \
+    cvtk deploy-ls-mlbackend \
         --project lsbackend \
         --source det.py \
         --label ./labels.txt \
@@ -110,5 +85,4 @@ To start the backend server, run:
 
 .. code-block:: sh
 
-    python lsbackend/main.py --host 0.0.0.0 --port 8080
-
+    python lsbackend/mlbackend.py --host 0.0.0.0 --port 8080

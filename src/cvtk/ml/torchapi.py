@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import random
 import gzip
@@ -42,7 +44,7 @@ class DataTransform():
         pipeline (torchvision.transforms.Compose): The composed transform pipeline.
 
     Examples:
-        >>> from cvtk.ml.torchutils import DataTransform
+        >>> from cvtk.ml.torchapi import DataTransform
         >>> transform_train = DataTransform(224, is_train=True)
         >>> print(transform_train.pipeline)
         >>> transform_inference = DataTransform(224)
@@ -87,7 +89,7 @@ def Dataset(datalabel, dataset, transform, stream_data=False, oversample=False, 
         dataset (str|list|tuple): Image data source:
             - File path: TSV file, image directory, or single image file
             - List/tuple: Image paths with optional labels as nested lists/tuples
-        transform (cvtk.ml.torchutils.DataTransform|torchvision.transforms.Compose|None): Image preprocessing pipeline.
+        transform (cvtk.ml.torchapi.DataTransform|torchvision.transforms.Compose|None): Image preprocessing pipeline.
         stream_data (bool): If True, returns iterable dataset for memory-efficient streaming.
             If False, returns standard dataset that loads all at once. Default is False.
         oversample (bool): If True, oversample minority classes to balance dataset.
@@ -100,7 +102,7 @@ def Dataset(datalabel, dataset, transform, stream_data=False, oversample=False, 
     
     Examples:
         >>> from cvtk.ml import DataLabel
-        >>> from cvtk.ml.torchutils import Dataset, DataTransform
+        >>> from cvtk.ml.torchapi import Dataset, DataTransform
         >>> datalabel = DataLabel(['cat', 'dog'])
         >>> transform = DataTransform(224, is_train=True)
         >>> dataset = Dataset(datalabel, 'train.txt', transform)
@@ -141,7 +143,7 @@ class Dataset_(torch.utils.data.Dataset):
 
     Examples:
         >>> from cvtk.ml import DataLabel
-        >>> from cvtk.ml.torchutils import Dataset, DataTransform
+        >>> from cvtk.ml.torchapi import Dataset, DataTransform
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
         >>> 
@@ -385,7 +387,7 @@ class DataLoader(torch.utils.data.DataLoader):
 
     Examples:
         >>> from cvtk.ml import DataLabel
-        >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader
+        >>> from cvtk.ml.torchapi import DataTransform, Dataset, DataLoader
         >>> datalabel = DataLabel(['cat', 'dog', 'bird'])
         >>> transform = DataTransform(224, is_train=True)
         >>> dataset = Dataset(datalabel, 'train.txt', transform)
@@ -523,7 +525,7 @@ class ClsRunner(BaseRunner):
         test_stats (dict): Test statistics (loss, accuracy, scores).
 
     Examples:
-        >>> from cvtk.ml.torchutils import ClsRunner
+        >>> from cvtk.ml.torchapi import ClsRunner
         >>> datalabel = ['cat', 'dog', 'bird']
         >>> runner = ClsRunner(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
     """
@@ -679,7 +681,7 @@ class ClsRunner(BaseRunner):
         
         Examples:
             >>> from cvtk.ml import DataLabel
-            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ClsRunner
+            >>> from cvtk.ml.torchapi import DataTransform, Dataset, DataLoader, ClsRunner
             >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
             >>> model = ClsRunner(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
             >>> transform_train = DataTransform(600, is_train=True)
@@ -857,7 +859,7 @@ class ClsRunner(BaseRunner):
 
         Examples:
             >>> from cvtk.ml import DataLabel
-            >>> from cvtk.ml.torchutils import ClsRunner
+            >>> from cvtk.ml.torchapi import ClsRunner
             >>> datalabel = DataLabel(['leaf', 'flower', 'root'])
             >>> model = ClsRunner(datalabel, 'efficientnet_b7', 'EfficientNet_B7_Weights.DEFAULT')
             >>> # ... training ...
@@ -941,7 +943,7 @@ class ClsRunner(BaseRunner):
         
         Examples:
             >>> from cvtk.ml import DataLabel
-            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ClsRunner
+            >>> from cvtk.ml.torchapi import DataTransform, Dataset, DataLoader, ClsRunner
             >>> datalabel = DataLabel(['cat', 'dog', 'bird'])
             >>> model = ClsRunner(datalabel, 'efficientnet_b7', 'model.pth')
             >>> transform = DataTransform(224, is_train=False)
@@ -988,7 +990,7 @@ class ClsRunner(BaseRunner):
         
         Examples:
             >>> from cvtk.ml import DataLabel
-            >>> from cvtk.ml.torchutils import DataTransform, Dataset, DataLoader, ClsRunner
+            >>> from cvtk.ml.torchapi import DataTransform, Dataset, DataLoader, ClsRunner
             >>> datalabel = DataLabel(['cat', 'dog', 'bird'])
             >>> model = ClsRunner(datalabel, 'efficientnet_b7', 'model.pth')
             >>> transform = DataTransform(224, is_train=False)
@@ -1060,4 +1062,3 @@ class ClsRunner(BaseRunner):
             outputs = pd.DataFrame(scores, columns=labels, index=images)
             
         return outputs
-

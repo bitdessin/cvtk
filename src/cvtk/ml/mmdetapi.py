@@ -331,19 +331,19 @@ class DetRunner():
     This class provides user-friendly APIs for object detection and instance segmentation
     using MMDetection.
     There are four main methods are implemented in this class:
-    :func:`train <cvtk.ml.mmdetutils.DetRunner.train>`,
-    :func:`test <cvtk.ml.mmdetutils.DetRunner.test>`,
-    :func:`save <cvtk.ml.mmdetutils.DetRunner.save>`,
-    :func:`inference <cvtk.ml.mmdetutils.DetRunner.inference>`.
-    The :func:`train <cvtk.ml.mmdetutils.DetRunner.train>` method is used for training the model
+    :func:`train <cvtk.ml.mmdetapi.DetRunner.train>`,
+    :func:`test <cvtk.ml.mmdetapi.DetRunner.test>`,
+    :func:`save <cvtk.ml.mmdetapi.DetRunner.save>`,
+    :func:`inference <cvtk.ml.mmdetapi.DetRunner.inference>`.
+    The :func:`train <cvtk.ml.mmdetapi.DetRunner.train>` method is used for training the model
     and perform validation and test if validation and test data are provided.
-    The :func:`test <cvtk.ml.mmdetutils.DetRunner.test>` method is used for testing the model with test data.
+    The :func:`test <cvtk.ml.mmdetapi.DetRunner.test>` method is used for testing the model with test data.
     In general, the performance test is performed automatically after the training,
     but user can also run the test independently from the training process with
-    the :func:`test <cvtk.ml.mmdetutils.DetRunner.test>` method.
-    The :func:`save <cvtk.ml.mmdetutils.DetRunner.save>` method is used for saving the model weights,
+    the :func:`test <cvtk.ml.mmdetapi.DetRunner.test>` method.
+    The :func:`save <cvtk.ml.mmdetapi.DetRunner.save>` method is used for saving the model weights,
     configuration (design of model architecture), training log (e.g., mAP and loss per epoch), and test results.
-    The :func:`inference <cvtk.ml.mmdetutils.DetRunner.inference>` method is used for running inference
+    The :func:`inference <cvtk.ml.mmdetapi.DetRunner.inference>` method is used for running inference
     with the trained model.
     The detailed usage of each method is described in the method documentation.
 
@@ -370,7 +370,7 @@ class DetRunner():
 
     Examples:
         >>> from cvtk.ml.data import DataLabel
-        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, DetRunner
+        >>> from cvtk.ml.mmdetapi import DataPipeline, Dataset, DataLoader, DetRunner
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
         >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
@@ -545,7 +545,7 @@ class DetRunner():
         the model will undergo a final evaluation at the end of training,
         and the test results will also be saved in the workspace.
         The test can also be performed independently from the training process,
-        seed the :func:`test <cvtk.ml.mmdetutils.DetRunner.test>` method for more details.
+        seed the :func:`test <cvtk.ml.mmdetapi.DetRunner.test>` method for more details.
 
         Args:
             train (DataLoader): A DataLoader class object.
@@ -557,7 +557,7 @@ class DetRunner():
 
     Examples:
         >>> from cvtk.ml.data import DataLabel
-        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, DetRunner
+        >>> from cvtk.ml.mmdetapi import DataPipeline, Dataset, DataLoader, DetRunner
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
         >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'
@@ -712,7 +712,7 @@ class DetRunner():
         
         This method is used to validate the model with test data.
         The test data should be COCO format file containing the annotations
-        and converted to a dictionary withs :func:`DataLoader <cvtk.ml.mmdetutils.DataLoader>`.
+        and converted to a dictionary withs :func:`DataLoader <cvtk.ml.mmdetapi.DataLoader>`.
         The predicted annotations of test data will be stored in the workspace
         with the names of :file:`test_outputs.pkl` in MMDetection format and
         :file:`test_outputs.coco.json` in COCO format.
@@ -724,7 +724,7 @@ class DetRunner():
 
         Examples:
         >>> from cvtk.ml.data import DataLabel
-        >>> from cvtk.ml.mmdetutils import DataPipeline, Dataset, DataLoader, DetRunner
+        >>> from cvtk.ml.mmdetapi import DataPipeline, Dataset, DataLoader, DetRunner
         >>> 
         >>> datalabel = DataLabel(['leaf', 'flower', 'stem'])
         >>> cfg = 'faster_rcnn_r50_fpn_1x_coco'

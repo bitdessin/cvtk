@@ -30,7 +30,7 @@ Data Utilities
 PyTorch Utilities for Classification
 ####################################
 
-.. automodule:: cvtk.ml.torchutils
+.. automodule:: cvtk.ml.torchapi
     :noindex:
     :members:
     :no-undoc-members:
@@ -40,7 +40,7 @@ PyTorch Utilities for Classification
 PyTorch Utilities for Detection and Segmentation
 ##################################################
 
-.. automodule:: cvtk.ml.torchdet
+.. automodule:: cvtk.ml.torchdetapi
     :noindex:
     :members:
     :no-undoc-members:
@@ -49,10 +49,9 @@ PyTorch Utilities for Detection and Segmentation
 MMDetection Utilities
 #####################
 
-.. automodule:: cvtk.ml.mmdetutils
+.. automodule:: cvtk.ml.mmdetapi
     :noindex:
     :members:
     :no-undoc-members:
     :member-order: bysource
-
 

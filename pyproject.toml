@@ -1,6 +1,6 @@
 [project]
 name = 'cvtk'
-description = 'computer vision toolkit'
+description = 'Chaotic Voodoo Trouble Kit'
 authors = [
     { name = 'Jianqiang Sun', email = 'sun@bitdessin.dev' },
 ]
@@ -22,7 +22,7 @@ dependencies = [
     'pandas>=1.3',
     'matplotlib',
     'pycocotools',
-    'scikit-learn',
+    'scikit-learn>=1.0',
     'scikit-image',
     'torch',
     'torchvision',
@@ -53,19 +53,6 @@ full = [
     'label-studio-tools',
 ]
 docs = [
-    'torch',
-    'torchvision',
-    'openmim',
-    'mmengine',
-    'mmcv-lite',
-    'mmdet',
-    'plotly',
-    'kaleido',
-    'flask',
-    'gunicorn',
-    'label-studio-sdk',
-    'label-studio-ml',
-    'label-studio-tools',
     'sphinx',
     'sphinx-rtd-theme',
     'sphinxcontrib-napoleon',

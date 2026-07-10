@@ -88,19 +88,19 @@ In the example below, we combine :file:`train.json`, :file:`valid.json`, and :fi
 Note that when specifying multiple files, separate them with commas without spaces.
 
 
-.. code-block::sh
+.. code-block:: sh
 
     cvtk coco-combine \
-        --inputs train.json,valid.json,test.json \
+        --input train.json,valid.json,test.json \
         --output dataset.json
 
 
-When executed correctly, the :file:`dataset.json` ile is generated.
+When executed correctly, the :file:`dataset.json` file is generated.
 The number of images in :file:`dataset.json` will be the sum of images from the input files.
 Additionally, the categories in :file:`dataset.json` will be the union of categories from the input files,
 with newly assigned category IDs.
 
-This functionality can also be executed from Python using the :func:`combine <cvtk.format.coco.combine>` method.
+This functionality can also be executed from Python using the :func:`combine <cvtk.data.coco.combine>` method.
 
 
 
@@ -109,10 +109,10 @@ File Splitting
 
 
 To split a single COCO format file into multiple files, use the ``cvtk coco-split`` command.
-In the example below, we shuffle :file:`dataset.json`` and then split it into three files in a 6:2:2 ratio,
-saving the output as subset.json.
+In the example below, we shuffle :file:`dataset.json` and then split it into three files in a 6:2:2 ratio,
+saving the output as :file:`subset.bbox.json`.
 
-.. code-block::sh
+.. code-block:: sh
 
     cvtk coco-split \
         --input ./data/strawberry/train/bbox.json \
@@ -120,10 +120,10 @@ saving the output as subset.json.
         --ratios 6:2:2 \
         --shuffle
 
-Upon successful execution, three files :file:`subset.json.0`, :file:`subset.json.1`, and :file:`subset.json.2` are generated,
+Upon successful execution, three files :file:`subset.bbox.json.0`, :file:`subset.bbox.json.1`, and :file:`subset.bbox.json.2` are generated,
 each containing images in the specified 6:2:2 ratio.
 
-This functionality can also be executed from Python using the :func:`split <cvtk.format.coco.split>` method.
+This functionality can also be executed from Python using the :func:`split <cvtk.data.coco.split>` method.
 
 
 
@@ -132,13 +132,13 @@ Annotation Rearrangement
 ========================
 
 To remove a specific images or categories from a given COCO format file,
-use `cvtk coco-remove` command.
+use the ``cvtk coco-remove`` command.
 The following example removes two images,
 a image with ID `1` and other image with file name `data/strawberry/train/images/2129c05b.jpg`,
 and a category named `flower`.
 
 
-.. code-block::sh
+.. code-block:: sh
 
     cvtk coco-remove \
         --input ./data/strawberry/train/bbox.json \
@@ -147,7 +147,7 @@ and a category named `flower`.
         --categories flower
 
 
-This functionality can also be executed from Python using the :func:`split <cvtk.format.coco.remove>` method.
+This functionality can also be executed from Python using the :func:`remove <cvtk.data.coco.remove>` method.
 
 
 
@@ -159,7 +159,7 @@ To crop images using the bounding box information in a COCO format file, use the
 Ensure that the ``file_name`` in the COCO format file correctly points to the actual image file paths.
 Convert to absolute paths if necessary.
 
-.. code-block::sh
+.. code-block:: sh
 
     cvtk coco-crop \
         --input dataset.json \
@@ -171,7 +171,7 @@ The filenames of the cropped images follow the format: "original_image_filename_
 where the coordinates are the bounding box's top-left and bottom-right coordinates
 as integers connected by hyphens (e.g., img01__strawberry__10-20-200-310.jpg).
 
-This functionality can also be executed from Python using the :func:`crop <cvtk.format.coco.crop>` method.
+This functionality can also be executed from Python using the :func:`crop <cvtk.data.coco.crop>` method.
 
 
 Retrieving Statistics
@@ -180,15 +180,14 @@ Retrieving Statistics
 
 To obtain statistics from a COCO format file,
 such as the number of images, number of categories,
-and the number of objects annotated for each category, use the ``cvtk coco-stat`` command.
+and the number of objects annotated for each category, use the ``cvtk coco-stats`` command.
 
-.. code-block::sh
+.. code-block:: sh
 
-    cvtk coco-stat \
+    cvtk coco-stats \
         --input ./data/strawberry/train/bbox.json
 
 
 The statistics are displayed in the standard output.
 If you wish to save the statistics in a JSON file or another format,
-use the :func:`stats <cvtk.format.coco.stats>` method directly from Python.
-
+use the :func:`stats <cvtk.data.coco.stats>` method directly from Python.

@@ -19,7 +19,7 @@ class TestScript(unittest.TestCase):
         if code_generator == 'api':
             cvtk.ml.deploy.runner(script, backend='mmdet', task=task, vanilla=vanilla)
         elif code_generator == 'script':
-            cmd_ = ['cvtk', 'deploy-model', '--backend', 'mmdet', '--task', task, '--script', script]
+            cmd_ = ['cvtk', 'deploy-model', '--backend', 'mmdet', '--task', task, '--script_name', script]
             if vanilla:
                 cmd_.append('--vanilla')
             testutils.run_cmd(cmd_)

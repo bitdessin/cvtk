@@ -20,7 +20,7 @@ class TestTorchScript(unittest.TestCase):
             cvtk.ml.deploy.runner(script, backend='torch', task='cls', vanilla=vanilla)
         
         elif code_generator == 'script':
-            cmd_ = ['cvtk', 'deploy-model', '--backend', 'torch', '--task', 'cls', '--script', script]
+            cmd_ = ['cvtk', 'deploy-model', '--backend', 'torch', '--task', 'cls', '--script_name', script]
             if vanilla:
                 cmd_.append('--vanilla')
             testutils.run_cmd(cmd_)

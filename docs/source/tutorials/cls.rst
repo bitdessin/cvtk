@@ -29,13 +29,13 @@ Preparation
 Users can write the source code for object classification from scratch
 using a few functions provided by the **cvtk** package.
 However, for those new to programming or deep learning,
-it is recommended to first use the ``cvtk create`` command
+it is recommended to first use the ``cvtk deploy-model`` command
 to generate an example script and then modify it as needed.
 
 
 .. code-block:: sh
     
-    cvtk create --script cls.py --task cls
+    cvtk deploy-model --script_name cls.py --backend torch --task cls
 
 
 This command generates a simple source code file named :file:`cls.py`
@@ -59,7 +59,7 @@ for example, by adding data augmentation or changing optimization algorithms.
 
 .. code-block:: sh
     
-    cvtk create --script cls.py --task cls --vanilla
+    cvtk deploy-model --script_name cls.py --backend torch --task cls --vanilla
 
 
 
@@ -214,4 +214,3 @@ and the following columns as the predicted probabilities for each class.
     c937b2d9.jpg  eggplant    0.00177   0.99704   0.00031     0.00088
     1fd32b2f.jpg  eggplant    0.00001   0.99994   0.00003     0.00000
     cad59952.jpg  tomato      0.00000   0.00000   0.00001     0.99999
-

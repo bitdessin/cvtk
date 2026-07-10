@@ -33,6 +33,30 @@ extensions = [
     'sphinx.ext.napoleon',
 ]
 
+autodoc_mock_imports = [
+    'requests',
+    'filetype',
+    'PIL',
+    'numpy',
+    'pandas',
+    'matplotlib',
+    'pycocotools',
+    'sklearn',
+    'skimage',
+    'plotly',
+    'kaleido',
+    'flask',
+    'torch',
+    'torchvision',
+    'mim',
+    'mmcv',
+    'mmengine',
+    'mmdet',
+    'label_studio_sdk',
+    'label_studio_ml',
+    'label_studio_tools',
+]
+
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -75,4 +99,3 @@ add_function_parentheses = False
 
 def setup(app):
     app.add_css_file('std.css')
-

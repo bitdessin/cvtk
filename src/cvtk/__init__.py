@@ -1,4 +1,4 @@
-__version__ = '0.3.0.0706'
+__version__ = '0.3.0.0710'
 
 from . import utils
 from . import io

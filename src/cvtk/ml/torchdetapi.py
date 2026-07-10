@@ -78,7 +78,7 @@ class Dataset(torch.utils.data.Dataset):
                 label file, or list of class names.
             dataset (str|list|tuple): COCO annotation file, image file, image
                 directory, text file of image paths, or a list of image paths.
-            transform (cvtk.ml.torchdet.DataTransform|torchvision.transforms.Compose|None):
+            transform (cvtk.ml.torchdetapi.DataTransform|torchvision.transforms.Compose|None):
                 Optional transform applied to each image.
             image_root (str|None): Optional base directory used to resolve
                 relative COCO image paths.

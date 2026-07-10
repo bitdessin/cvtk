@@ -188,6 +188,21 @@ class TestDataCoco(unittest.TestCase):
         stats = cvtk.data.coco.calc_stats(self.coco_dicts[2], self.coco_test_result)
 
 
+    def test_calc_stats_empty_predictions(self):
+        pred = copy.deepcopy(self.coco_dicts[2])
+        pred['annotations'] = []
+
+        stats = cvtk.data.coco.calc_stats(
+            self.coco_dicts[2],
+            pred,
+            image_by='file_name',
+            category_by='name')
+
+        self.assertTrue(all(value == 0.0 for value in stats['stats'].values()))
+        for class_stats in stats['class_stats'].values():
+            self.assertTrue(all(value == 0.0 for value in class_stats.values()))
+
+
 
 
 class TestDataCocoScripts(unittest.TestCase):

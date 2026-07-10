@@ -140,7 +140,7 @@ class TestDemoAppDeployment(unittest.TestCase):
         if code_generator == 'api':
             cvtk.ml.deploy.runner(script_path, backend=backend, task=task, vanilla=vanilla)
         else:  # script
-            cmd = ['cvtk', 'deploy-model', '--backend', backend, '--task', task, '--script', script_path]
+            cmd = ['cvtk', 'deploy-model', '--backend', backend, '--task', task, '--script_name', script_path]
             if vanilla:
                 cmd.append('--vanilla')
             testutils.run_cmd(cmd)

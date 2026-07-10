@@ -552,6 +552,7 @@ def _extract_top_level_def(source_file, name):
 
 def _collect_imports(source_files):
     seen = set()
+    future_result = []
     result = []
 
     for source_file in sorted(source_files):
@@ -574,6 +575,10 @@ def _collect_imports(source_files):
             elif isinstance(node, ast.ImportFrom):
                 module = node.module or ""
 
+                if module == "__future__":
+                    _append_once(future_result, seen, lines[node.lineno - 1])
+                    continue
+
                 if node.level > 0:
                     continue
 
@@ -586,7 +591,7 @@ def _collect_imports(source_files):
                 for line in lines[node.lineno - 1:node.end_lineno]:
                     _append_once(result, seen, line)
 
-    return result
+    return future_result + result
 
 
 def _append_once(result, seen, line):

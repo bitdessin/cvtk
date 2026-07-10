@@ -429,7 +429,7 @@ def stats(
     return stats
 
 
-def __check_list_in_dict(d, k):
+def __check_list_in_dict(d, k, allow_empty=False):
     if not isinstance(d, dict):
         raise ValueError(f'Expected a dictionary, but got {type(d)}.')
     if k not in d:
@@ -438,8 +438,19 @@ def __check_list_in_dict(d, k):
         raise ValueError(f'The value for key "{k}" is None.')
     if not isinstance(d[k], list):
         raise ValueError(f'Expected a list for key "{k}", but got {type(d[k])}.')
-    if len(d[k]) == 0:
+    if len(d[k]) == 0 and not allow_empty:
         raise ValueError(f'The list for key "{k}" is empty.')
+
+
+def __empty_prediction_stats(metrics_labels, coco_gt):
+    stats_ = {label: 0.0 for label in metrics_labels}
+    class_stats = {}
+    for category in coco_gt.dataset['categories']:
+        class_stats[category['name']] = {label: 0.0 for label in metrics_labels}
+    return {
+        'stats': stats_,
+        'class_stats': class_stats
+    }
 
 
 def calc_stats(
@@ -504,9 +515,12 @@ def calc_stats(
 
     # prediction
     coco_pred = _load_coco(pred, image_root=image_root)
-    __check_list_in_dict(coco_pred, 'annotations')
+    __check_list_in_dict(coco_pred, 'annotations', allow_empty=True)
     __check_list_in_dict(coco_pred, 'images')
     __check_list_in_dict(coco_pred, 'categories')
+
+    if len(coco_pred['annotations']) == 0:
+        return __empty_prediction_stats(metrics_labels, coco_gt)
 
     # replace image ID if gt and pred coco have different image ID
     if image_by == 'id':
@@ -695,4 +709,3 @@ def __compute_metric(coco_eval, parsed_metric, class_idx=None):
     if vals.size == 0:
         return float('nan')
     return float(vals.mean())
-

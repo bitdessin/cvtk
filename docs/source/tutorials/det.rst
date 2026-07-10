@@ -12,18 +12,21 @@ to build and train an object detection model, covering the process from training
     The **cvtk** package internally uses functions from
     **torch** (`PyTorch <https://pytorch.org/>`_),
     **mmcv** (`MMCV <https://mmcv.readthedocs.io/en/latest/>`_),
+    **mmengine** (`MMEngine <https://mmengine.readthedocs.io/en/latest/>`_),
     and **mmdet** (`MMDetection <https://mmdetection.readthedocs.io/en/latest/>`_) packages
     for object detection tasks.
-    Make sure that **torch**, **mmdet**, and **mmcv** are installed correctly
+    Make sure that **torch**, **mmcv**, **mmengine**, and **mmdet** are installed correctly
     without any errors before using **cvtk**.
 
     .. code:: python
 
         import torch
         import mmcv
+        import mmengine
         import mmdet
         print(f"torch {torch.__version__}")
         print(f"mmcv {mmcv.__version__}")
+        print(f"mmengine {mmengine.__version__}")
         print(f"mmdet {mmdet.__version__}")
 
 
@@ -31,11 +34,11 @@ to build and train an object detection model, covering the process from training
 Preparation
 ***********
 
-The ``cvtk create`` command can generate a source code for detecting objects in images.
+The ``cvtk deploy-model`` command can generate source code for detecting objects in images.
 
 .. code-block:: sh
     
-    cvtk create --script det.py --task det
+    cvtk deploy-model --script_name det.py --backend mmdet --task det
 
 
 This command generates a file named :file:`det.py`,
@@ -51,7 +54,7 @@ Available architectures can be found on the MMDetection GitHub repository
 or searched using the ``mim search`` command (e.g., ``mim search mmdet --model "faster-rcnn"``).
 
 For users familiar with deep learning,
-it is recommended to run ``cvtk create`` with the ``--vanilla`` argument.
+it is recommended to run ``cvtk deploy-model`` with the ``--vanilla`` argument.
 This generates source code that uses only **torch** and **mmdet** functions,
 without relying on **cvtk**.
 The resulting script can be shared with others who do not have **cvtk** installed,
@@ -61,7 +64,7 @@ for example, by adding data augmentation or changing optimization algorithms.
 
 .. code-block:: sh
     
-    cvtk create --script det.py --task det --vanilla
+    cvtk deploy-model --script_name det.py --backend mmdet --task det --vanilla
 
 
 
@@ -166,24 +169,8 @@ the model can still be trained using only the training dataset, as shown below.
         --output_weights ./outputs/strawberry.pth
 
 
-This script also supports resuming training from previously trained weights.  
-Specify the path to the pretrained weights using the ``--input_weights`` argument, as follows.
-
-
-.. code-block:: sh
-
-    python det.py train \
-        --label ./data/strawberry/label.txt \
-        --train ./data/strawberry/train/bbox.json \
-        --valid ./data/strawberry/valid/bbox.json \
-        --test ./data/strawberry/test/bbox.json \
-        --input_weights ./outputs/strawberry.pth \
-        --output_weights ./outputs/strawberry_v2.pth
-
-
 Users can also customize various training parameters,
-such as the number of epochs, batch size,
-and optimization algorithm, 
+such as the number of epochs, batch size, and number of data-loading workers,
 by editing the default values in the ``train`` function inside :file:`det.py`.
 
 
@@ -200,8 +187,8 @@ or a directory containing images.
 .. code-block:: sh
 
     python det.py inference \
-        --label ./data/fruits/label.txt \
-        --data ./data/fruits/test.txt \
+        --label ./data/strawberry/label.txt \
+        --data ./data/strawberry/test/images \
         --model_weights ./outputs/strawberry.pth \
         --output ./outputs/inference_results
 
@@ -209,7 +196,7 @@ or a directory containing images.
 The inference results for each image (i.e., images with predicted bounding boxes)
 will be saved in the :file:`inference_results` directory.
 Additionally, a COCO format file containing all predicted annotations
-will be saved as :file:`instances.json`.
+will be saved as :file:`instances.coco.json`.
 The following are examples of the output images.
 
 
@@ -221,4 +208,3 @@ The following are examples of the output images.
 .. image:: ../_static/7f7737de.det.jpg
     :width: 70%
     :align: center
-
