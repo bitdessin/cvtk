@@ -10,6 +10,14 @@ we changed what it stands for.
 **Chaotic Voodoo Trouble Kit**,
 a trouble kit powered by chaos and voodoo magic.
 
+
+.. image:: _static/cvtk.logo.png
+   :alt: cvtk logo
+   :width: 50%
+   :align: center
+
+
+
 Behind the questionable name is a practical toolkit that provides easy-to-use command-line
 tools for common computer vision tasks. With **cvtk**, you can perform object classification,
 object detection, instance segmentation, and related operations with minimal setup.
